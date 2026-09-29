@@ -1,0 +1,34 @@
+import React from 'react';
+
+export function Badge({ tone = 'neutral', children }) {
+  return <span className={`badge ${tone}`}>{children}</span>;
+}
+
+export function Avatar({ name }) {
+  const initials = (name || '?').split(' ').filter(Boolean).map((s) => s[0]).join('').slice(0, 2).toUpperCase();
+  return <div className="avatar">{initials}</div>;
+}
+
+export function ErrorBox({ children }) {
+  return children ? <div className="error">{children}</div> : null;
+}
+
+export function Field({ label, children }) {
+  return (
+    <label className="stack" style={{ gap: 4 }}>
+      <span className="label">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+// Runs an async action with busy + error state; returns [run, busy, error, setError].
+export function useAction() {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const run = React.useCallback(async (fn) => {
+    setBusy(true); setError('');
+    try { return await fn(); } catch (e) { setError(e.message || String(e)); return undefined; } finally { setBusy(false); }
+  }, []);
+  return [run, busy, error, setError];
+}
