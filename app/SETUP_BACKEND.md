@@ -11,8 +11,10 @@ This turns the app from a demo into a real, working product with accounts, a rea
 
 1. In your new project, open the **SQL Editor** (left sidebar).
 2. Click "New query".
-3. Open `supabase/schema.sql` from this codebase, copy all of it, paste it in, and click **Run**.
-4. You should see "Success. No rows returned." This creates the `profiles`, `tasks`, and `task_visits` tables, sets up security rules, and wires up a trigger so every signup automatically gets a profile.
+3. Open `supabase/schema.sql` (in the repository root, next to `app/` and `admin/`), copy all of it, paste it in, and click **Run**.
+4. You should see "Success. No rows returned." This creates the tables (profiles, tasks, visits, completion codes, PM documents, audit log), the security rules, the task actions (assign, accept, complete…), and a private `pm-documents` storage bucket for ID uploads.
+
+**Already ran an older version of this file?** Run the new one anyway — it's safe to run as many times as you like and upgrades what's there. Existing Personal Manager accounts are moved back to "application not submitted" so they go through verification.
 
 ## 3. Turn on email login (2 min)
 
@@ -34,22 +36,30 @@ This turns the app from a demo into a real, working product with accounts, a rea
 ## 5. Try it
 
 - Open the app (Expo Go on your phone, or `w` for web preview) — you'll now see a login screen first.
-- Tap "Create an account", pick **Customer** or **Personal Manager**, sign up with a real email.
-- Confirm the email (check your inbox for the confirmation link from Supabase), then log back in.
-- Post a task as a customer, then sign up a second account as a Personal Manager to see it from that side. Task changes now sync live across devices — no more resets on restart.
+- Tap "Create an account", pick **Customer**, sign up with a real email, confirm it, log in, and post a task.
+- Sign up a second account as **Personal Manager**. After logging in it shows the application form: pick skills, enter an area, upload a photo of an ID, submit.
+- Make yourself an admin (below), open the admin dashboard (`admin/README.md`), approve the application under **Applications**, then assign the task under **Task queue**.
+- The PM's phone shows the offer → Accept → Start → enter the customer's 4-digit completion code. Every step shows up live on the customer's screen and in the admin audit log.
 
 ## Making yourself (or anyone) an Admin
 
-There's no signup option for Admin on purpose — you promote an account manually so nobody can just sign up as one:
+There's no signup option for Admin on purpose — you promote an account manually so nobody can just sign up as one (the database also refuses it if someone tries through the API):
 1. Sign up normally as a customer first.
-2. In Supabase, go to **Table Editor → profiles**, find your row, and change `role` from `customer` to `admin`.
-3. Next time you log into the app, you'll see a Customer/PM view switcher appear at the bottom — that's your admin preview control. (The full assignment queue/dashboard for admins is the web prototype for now, covered below.)
+2. In Supabase, open the **SQL Editor** and run (with your email):
+   ```sql
+   update profiles set role = 'admin' where email = 'you@example.com';
+   ```
+3. Sign in to the admin dashboard (`admin/`) with that account. In the mobile app, admins also get a Customer/PM view switcher at the bottom.
 
 ## What this gives you vs. what's still manual
 
-Working now: real accounts, email + password or email-code login, a real Postgres database, live sync between customer and worker apps (a visit logged on the worker's phone appears instantly on the customer's tracking screen), row-level security so people can only see their own data.
+Working now: real accounts; PM applications with ID upload and admin approval; admin assignment from a ranked shortlist; accept/decline/start/complete on the PM's phone with the completion code checked by the database (the PM never sees it); ratings both ways; cancellations; a full audit log; live sync everywhere; row-level security so people only see their own data and the person they're working with.
 
-Still to build when you're ready: connecting the admin assignment queue (currently the web prototype) to this same database so the "system suggests, admin assigns" flow uses real signups instead of seed data; real SMS for OTPs (currently the code just lives in the database — fine for testing, but a real launch should text it); and payments.
+Still to build when you're ready:
+- **SMS / push notifications** — today people see changes when the app is open. Next step: Expo push notifications for "new task offered" and "PM accepted", and SMS for the completion code.
+- **Offer time-out** — if a PM doesn't accept, an admin reassigns from the queue (the Overview shows how long offers have waited). Automatic re-offer after N minutes needs a scheduled job (Supabase cron).
+- **Payments** — prices are recorded and the dashboard estimates platform share, but no money moves yet (Razorpay is the usual choice in India).
+- **Real location / distance** — matching uses the PM's service-area name vs the task address. GPS + distance needs `expo-location` and PostGIS.
 
 ## Costs
 

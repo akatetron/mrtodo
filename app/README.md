@@ -1,20 +1,27 @@
 # Mr. Todo — Native App (React Native / Expo)
 
-A working Expo/React Native codebase for Mr. Todo, mirroring the web prototype: customers post tasks, get matched with a Personal Manager, track progress, log multi-day visits, and confirm completion with an OTP code. Includes both the Customer and Personal Manager (worker) experiences, switchable with the tab at the bottom of the screen. The Admin console stays web-only (it's a back-office tool, not something an admin needs on a phone) — use the existing HTML prototype for that.
+A working Expo/React Native codebase for Mr. Todo, for iOS, Android and the web: customers post tasks, an admin matches them with a verified Personal Manager, customers track progress live, and completion is confirmed with a code only the customer has. People sign up either as customers or as Personal Managers (who apply with ID and get approved before they receive work). The admin console is a separate website in `../admin`.
 
 ## What's inside
 
 ```
-App.js                      entry point
-src/theme.js                 colors (Option B: teal + brass), spacing, radius, type
-src/data/store.js             in-memory data store + actions (createTask, assignWorker, logVisit, completeWithOtp, ...)
-src/components/UI.js          shared Card / Badge / Button / StatusTracker components
-src/screens/HomeScreen.js       customer: post a task (templates, category, one-time/ongoing, location, who-for)
-src/screens/TrackTaskScreen.js  customer: status tracker, visit log, completion code, assigned PM
-src/screens/WorkerHomeScreen.js worker: persona picker, new assignments, in-progress/completed lists
-src/screens/WorkerJobScreen.js  worker: task detail, accept/decline, log visit, OTP-gated completion
-src/navigation/RootNavigator.js stack navigators for both roles + the role switcher
+App.js                              entry point
+src/theme.js                        brand colours (docs/Brand_Colors.pdf), spacing, type
+src/lib/supabase.js                 Supabase client (project URL + publishable key)
+src/lib/AuthContext.js              session + live profile for every screen
+src/data/store.js                   tasks store (realtime) + every action the app can take
+src/components/UI.js                Card / Badge / Button / Input / Stars / StatusTracker
+src/screens/auth/                   log in (password or email code), sign up (customer or PM)
+src/screens/HomeScreen.js           customer: post a task, see recent tasks
+src/screens/TrackTaskScreen.js      customer: live status, completion code, PM, cancel, rate
+src/screens/PmApplicationScreen.js  PM: application form + ID upload, pending/approved states
+src/screens/WorkerHomeScreen.js     PM: new offers, availability toggle, earnings, task lists
+src/screens/WorkerJobScreen.js      PM: accept/decline → start → log visits → enter code → rate
+src/screens/AccountScreen.js        both: edit name/phone, sign out
+src/navigation/RootNavigator.js     picks the right screens for the signed-in role
 ```
+
+The database (`../supabase/schema.sql`) and the admin dashboard (`../admin`) live next to this folder.
 
 ## Running it
 
@@ -34,7 +41,7 @@ You'll need Node.js installed. This project was scaffolded for Expo SDK 51.
    - **On your phone**: install the free "Expo Go" app (iOS App Store / Google Play), then scan the QR code. The app loads live on your phone — no build needed.
    - **iOS Simulator** (Mac only, needs Xcode): press `i` in the terminal.
    - **Android Emulator** (needs Android Studio): press `a` in the terminal.
-   - **Web preview**: press `w` (uses react-native-web; handy for a quick look, not a substitute for testing on a real device).
+   - **Web**: press `w`. The same app runs as a website — `npm run build:web` produces a static site in `dist/` you can host anywhere (Netlify, Vercel, Cloudflare Pages…).
 
 ## Publishing to the App Store / Play Store
 
@@ -46,10 +53,6 @@ This sandbox can't compile native binaries or submit to app stores directly, but
 4. `eas build --platform ios` and/or `eas build --platform android` — Expo builds the actual app binary in the cloud and gives you a download link (or auto-submits with `eas submit`).
 5. iOS submission needs an active Apple Developer account (~$99/year); Android needs a one-time Google Play Console fee (~$25).
 
-You mentioned you can help on the app-store side (developer accounts, store listings, screenshots) when we get there — that's exactly the part EAS still needs a human for, so that offer lines up well with steps 5 above.
+## Current state
 
-## Current state / what's simulated
-
-- All data (tasks, workers, ratings) lives in memory (`src/data/store.js`) and resets when the app restarts — there's no backend yet. Wiring this to a real API (task creation, matching, notifications, payments) is the next real engineering milestone once you're ready to move past the clickable/native prototype stage.
-- The "Use current location" button fills in a placeholder string rather than calling the device GPS — swapping in `expo-location` is a small follow-up once you want that live.
-- OTP codes are generated locally and shown directly on the customer's tracking screen (so you can test the flow yourself); in production this would be sent via SMS and never shown to the Personal Manager's app.
+Everything is live against Supabase — see `SETUP_BACKEND.md` for setup and the list of what's still to build (notifications, payments, GPS).
