@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
 import { colors, radius, spacing } from '../theme';
 
 export function Card({ children, style }) {
@@ -25,6 +25,7 @@ export function Badge({ label, tone = 'neutral', style }) {
 export function Button({ label, onPress, variant = 'primary', style, disabled, size = 'md' }) {
   const isPrimary = variant === 'primary';
   const isGhost = variant === 'ghost';
+  const isDanger = variant === 'danger';
   return (
     <Pressable
       onPress={onPress}
@@ -34,12 +35,13 @@ export function Button({ label, onPress, variant = 'primary', style, disabled, s
         size === 'sm' && styles.btnSm,
         isPrimary && { backgroundColor: colors.accent },
         isGhost && { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+        isDanger && { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger },
         disabled && { opacity: 0.5 },
         pressed && !disabled && { opacity: 0.85 },
         style,
       ]}
     >
-      <Text style={[styles.btnText, isGhost && { color: colors.text }, isPrimary && { color: colors.accentText }]}>
+      <Text style={[styles.btnText, isGhost && { color: colors.text }, isPrimary && { color: colors.accentText }, isDanger && { color: colors.danger }]}>
         {label}
       </Text>
     </Pressable>
@@ -50,7 +52,32 @@ export function FieldLabel({ children }) {
   return <Text style={styles.fieldLabel}>{children}</Text>;
 }
 
+export function Input({ style, ...props }) {
+  return <TextInput placeholderTextColor={colors.faint} style={[styles.input, props.multiline && styles.inputMulti, style]} {...props} />;
+}
+
+export function ErrorText({ children }) {
+  if (!children) return null;
+  return <Text style={styles.error}>{children}</Text>;
+}
+
+// Tap-to-rate 1–5 stars. Read-only when onChange is omitted.
+export function Stars({ value = 0, onChange, size = 28 }) {
+  return (
+    <View style={{ flexDirection: 'row', gap: 6 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Pressable key={n} disabled={!onChange} onPress={() => onChange && onChange(n)} hitSlop={4} accessibilityLabel={`${n} star${n > 1 ? 's' : ''}`}>
+          <Text style={{ fontSize: size, color: n <= value ? colors.brass : colors.border }}>★</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 export function StatusTracker({ status }) {
+  if (status === 'cancelled') {
+    return <Badge label="This task was cancelled" tone="danger" />;
+  }
   const idx = ['requested', 'matched', 'assigned', 'in_progress', 'completed'].indexOf(status);
   const labels = { requested: 'Requested', matched: 'Matched', assigned: 'Assigned', in_progress: 'In progress', completed: 'Completed' };
   return (
@@ -106,6 +133,18 @@ const styles = StyleSheet.create({
   },
   btnSm: { paddingVertical: 9, paddingHorizontal: 13, borderRadius: radius.sm },
   btnText: { fontWeight: '700', fontSize: 14.5 },
+  input: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    fontSize: 14.5,
+    color: colors.text,
+    backgroundColor: colors.surface,
+  },
+  inputMulti: { height: 84, textAlignVertical: 'top' },
+  error: { color: colors.danger, fontSize: 13, lineHeight: 18 },
   fieldLabel: {
     fontSize: 12,
     fontWeight: '700',

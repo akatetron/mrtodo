@@ -1,25 +1,39 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
-import { Card, Badge, StatusTracker, FieldLabel } from '../components/UI';
-import { useTasks, getTask, worker, catMeta, visitsDone, runningTotal, STATUS_META } from '../data/store';
+import { Card, Badge, Button, StatusTracker, FieldLabel, Stars, Input, ErrorText } from '../components/UI';
+import {
+  useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
+} from '../data/store';
+
+const STATUS_COPY = {
+  requested: "We're finding you a qualified Personal Manager — this usually takes a few minutes.",
+  matched: 'A Personal Manager has been matched and is confirming they can take it.',
+  assigned: 'Your Personal Manager has accepted and will arrive at the scheduled time.',
+  in_progress: 'Your Personal Manager is working on it.',
+};
 
 export default function TrackTaskScreen({ route }) {
-  useTasks(); // subscribe so this screen re-renders when admin/worker actions change the task
+  useTasks(); // subscribe so this screen re-renders when admin/PM actions change the task
   const { taskId } = route.params;
   const t = getTask(taskId);
-  if (!t) return <Text style={{ padding: 20 }}>Task not found.</Text>;
-  const w = t.assignedWorkerId ? worker(t.assignedWorkerId) : null;
+  if (!t) return <Text style={{ padding: 20, color: colors.muted }}>Loading task…</Text>;
+  const w = t.worker;
+  const meta = STATUS_META[t.status];
+  // A PM is only shown once they have accepted.
+  const showPm = w && ['assigned', 'in_progress', 'completed'].includes(t.status);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
       <View style={styles.headerRow}>
-        <Text style={styles.h1}>Task #MT-{taskId.slice(1).padStart(5, '0')}</Text>
-        <Badge label={STATUS_META[t.status].label} tone={t.status === 'completed' ? 'success' : 'accent'} />
+        <Text style={styles.h1}>Task #{shortId(t.id)}</Text>
+        <Badge label={meta.label} tone={meta.tone} />
       </View>
 
-      <Card style={{ marginBottom: spacing.lg }}>
+      <Card style={{ marginBottom: spacing.lg, gap: spacing.md }}>
         <StatusTracker status={t.status} />
+        {!!STATUS_COPY[t.status] && <Text style={styles.statusCopy}>{STATUS_COPY[t.status]}</Text>}
+        {t.status === 'cancelled' && !!t.cancelReason && <Text style={styles.statusCopy}>Reason: {t.cancelReason}</Text>}
       </Card>
 
       <Card style={{ marginBottom: spacing.lg, gap: spacing.md }}>
@@ -33,16 +47,16 @@ export default function TrackTaskScreen({ route }) {
           <View style={styles.subtleBox}>
             <Text style={styles.subtleText}>
               <Text style={{ fontWeight: '700', color: colors.text }}>Booked for: </Text>
-              {t.recipientName} ({t.recipientRelation})
+              {t.recipientName}{t.recipientRelation ? ` (${t.recipientRelation})` : ''}
             </Text>
           </View>
         )}
         <View style={{ flexDirection: 'row', gap: 24, flexWrap: 'wrap' }}>
           <View>
             <FieldLabel>Scheduled</FieldLabel>
-            <Text style={styles.metaVal}>{t.scheduledFor}</Text>
+            <Text style={styles.metaVal}>{t.scheduledFor || 'Flexible'}</Text>
           </View>
-          <View>
+          <View style={{ flexShrink: 1 }}>
             <FieldLabel>📍 Location</FieldLabel>
             <Text style={styles.metaVal}>{t.location}</Text>
           </View>
@@ -53,7 +67,7 @@ export default function TrackTaskScreen({ route }) {
         </View>
       </Card>
 
-      {t.taskType === 'ongoing' && (
+      {t.taskType === 'ongoing' && t.status !== 'requested' && (
         <Card style={{ marginBottom: spacing.lg }}>
           <View style={styles.headerRow}>
             <Text style={styles.h2}>Visit log</Text>
@@ -61,15 +75,15 @@ export default function TrackTaskScreen({ route }) {
               {visitsDone(t)} visit{visitsDone(t) === 1 ? '' : 's'} · ₹{runningTotal(t)} so far
             </Text>
           </View>
-          <View style={{ gap: 10, marginTop: 10 }}>
+          <View style={{ gap: 10 }}>
             {t.visits.length ? (
-              t.visits.map((v, i) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 10 }}>
+              t.visits.map((v) => (
+                <View key={v.id} style={{ flexDirection: 'row', gap: 10 }}>
                   <View style={[styles.visitDot, v.done && { backgroundColor: colors.success, borderColor: colors.success }]}>
                     {v.done && <Text style={{ color: 'white', fontSize: 10, fontWeight: '700' }}>✓</Text>}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontWeight: '700', fontSize: 13.5 }}>
+                    <Text style={{ fontWeight: '700', fontSize: 13.5, color: colors.text }}>
                       {v.date}
                       {v.done ? ` · ₹${t.ratePerDay || 0}` : ''}
                     </Text>
@@ -99,27 +113,86 @@ export default function TrackTaskScreen({ route }) {
         </Card>
       )}
 
-      {w ? (
-        <Card>
+      {showPm && (
+        <Card style={{ marginBottom: spacing.lg }}>
           <FieldLabel>Your Personal Manager</FieldLabel>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{w.initials}</Text>
             </View>
-            <View>
-              <Text style={{ fontWeight: '700', fontSize: 15.5 }}>{w.name}</Text>
-              <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>★ {w.rating.toFixed(1)} · {w.jobsDone} tasks</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontWeight: '700', fontSize: 15.5, color: colors.text }}>{w.name}</Text>
+              <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
+                {formatRating(w.rating, w.ratingCount)} · {w.jobsDone} task{w.jobsDone === 1 ? '' : 's'} done
+              </Text>
+              {!!w.phone && t.status !== 'completed' && <Text style={{ color: colors.accent, fontSize: 13, marginTop: 2, fontWeight: '700' }}>📞 {w.phone}</Text>}
             </View>
           </View>
         </Card>
-      ) : (
-        <Card>
-          <Text style={{ color: colors.muted, textAlign: 'center', fontSize: 13.5 }}>
-            We're finding you a qualified Personal Manager — this usually takes a few minutes.
-          </Text>
-        </Card>
       )}
+
+      {t.status === 'completed' && <RatePm t={t} />}
+      {['requested', 'matched', 'assigned'].includes(t.status) && <CancelTask t={t} />}
     </ScrollView>
+  );
+}
+
+function RatePm({ t }) {
+  const [stars, setStars] = useState(0);
+  const [review, setReview] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (t.customerRatingOfWorker != null) {
+    return (
+      <Card style={{ alignItems: 'center', gap: 6 }}>
+        <Text style={{ fontWeight: '700', color: colors.text }}>You rated this task</Text>
+        <Stars value={t.customerRatingOfWorker} size={22} />
+      </Card>
+    );
+  }
+
+  async function submit() {
+    setError(''); setBusy(true);
+    try { await rateTask(t.id, stars, review.trim()); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <Card style={{ gap: spacing.md }}>
+      <Text style={{ fontWeight: '700', fontSize: 15, color: colors.text }}>How did {t.worker?.name?.split(' ')[0] || 'your Personal Manager'} do?</Text>
+      <Stars value={stars} onChange={setStars} />
+      <Input placeholder="Anything you'd like to add? (optional)" value={review} onChangeText={setReview} multiline />
+      <ErrorText>{error}</ErrorText>
+      <Button label={busy ? 'Saving…' : 'Submit rating'} onPress={submit} disabled={busy || !stars} />
+    </Card>
+  );
+}
+
+function CancelTask({ t }) {
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (!confirming) {
+    return <Button label="Cancel this task" variant="ghost" onPress={() => setConfirming(true)} />;
+  }
+
+  async function confirm() {
+    setError(''); setBusy(true);
+    try { await cancelTask(t.id, reason.trim()); } catch (e) { setError(e.message); setBusy(false); }
+  }
+
+  return (
+    <Card style={{ gap: spacing.md, borderColor: colors.danger }}>
+      <Text style={{ fontWeight: '700', color: colors.text }}>Cancel this task?</Text>
+      <Input placeholder="Reason (optional)" value={reason} onChangeText={setReason} />
+      <ErrorText>{error}</ErrorText>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Button label="Keep it" variant="ghost" style={{ flex: 1 }} onPress={() => setConfirming(false)} />
+        <Button label={busy ? 'Cancelling…' : 'Yes, cancel'} variant="danger" style={{ flex: 1 }} onPress={confirm} disabled={busy} />
+      </View>
+    </Card>
   );
 }
 
@@ -129,6 +202,7 @@ const styles = StyleSheet.create({
   h2: { fontSize: 15, fontWeight: '700', color: colors.text },
   title: { fontWeight: '700', fontSize: 16.5, color: colors.text },
   desc: { color: colors.muted, fontSize: 13.5, lineHeight: 20 },
+  statusCopy: { color: colors.muted, fontSize: 13, lineHeight: 19 },
   metaVal: { fontWeight: '700', fontSize: 13.5, color: colors.text },
   mutedSmall: { fontSize: 12.5, color: colors.muted, fontWeight: '700' },
   subtleBox: { backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, padding: 12 },

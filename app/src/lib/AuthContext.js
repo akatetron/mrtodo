@@ -1,12 +1,14 @@
 // Mr. Todo — auth session + profile, available to every screen via useAuth().
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { resetStore } from '../data/store';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined); // undefined = still loading
   const [profile, setProfile] = useState(null);
+  const userId = session?.user?.id;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -14,17 +16,32 @@ export function AuthProvider({ children }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!session?.user) { setProfile(null); return; }
-    supabase.from('profiles').select('*').eq('id', session.user.id).single()
-      .then(({ data }) => setProfile(data));
-  }, [session?.user?.id]);
+  const refreshProfile = useCallback(async () => {
+    if (!userId) return;
+    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    setProfile(data);
+  }, [userId]);
 
-  async function signUpWithPassword({ email, password, fullName, role }) {
+  // Load the profile, and keep it live so a PM sees "approved" the moment an
+  // admin approves them. Tasks cached for a previous user are thrown away.
+  useEffect(() => {
+    resetStore();
+    setProfile(null);
+    if (!userId) return undefined;
+    refreshProfile();
+    const channel = supabase
+      .channel(`profile-${userId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+        (payload) => setProfile(payload.new))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, refreshProfile]);
+
+  async function signUpWithPassword({ email, password, fullName, phone, role }) {
     return supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName, role } },
+      options: { data: { full_name: fullName, phone, role } },
     });
   }
 
@@ -33,7 +50,7 @@ export function AuthProvider({ children }) {
   }
 
   async function signInWithOtp({ email }) {
-    return supabase.auth.signInWithOtp({ email });
+    return supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
   }
 
   async function verifyOtp({ email, token }) {
@@ -49,6 +66,7 @@ export function AuthProvider({ children }) {
     user: session?.user || null,
     profile,
     loading: session === undefined,
+    refreshProfile,
     signUpWithPassword,
     signInWithPassword,
     signInWithOtp,

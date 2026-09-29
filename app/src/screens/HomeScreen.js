@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
-import { Card, Button, FieldLabel, Badge } from '../components/UI';
-import { CATEGORIES, TEMPLATES, createTask, myTasks, useTasks, STATUS_META, catMeta } from '../data/store';
+import { Card, Button, FieldLabel, Badge, ErrorText } from '../components/UI';
+import { CATEGORIES, TEMPLATES, createTask, myTasks, useTasks, STATUS_META, catMeta, initials } from '../data/store';
 import { useAuth } from '../lib/AuthContext';
 
 export default function HomeScreen({ navigation }) {
@@ -18,7 +18,11 @@ export default function HomeScreen({ navigation }) {
   const [recipientRelation, setRecipientRelation] = useState('');
   const [cost, setCost] = useState('');
   const [rate, setRate] = useState('');
+  const [when, setWhen] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const mine = myTasks(user?.id);
 
@@ -31,31 +35,51 @@ export default function HomeScreen({ navigation }) {
   }
 
   async function submit() {
-    if (!title.trim() || !location.trim()) return;
-    const task = await createTask({
-      title: title.trim(),
-      category,
-      description: desc.trim(),
-      taskType,
-      scheduledFor: 'Date TBC',
-      location: location.trim(),
-      estCost: taskType === 'one-time' && cost ? parseInt(cost, 10) : null,
-      ratePerDay: taskType === 'ongoing' && rate ? parseInt(rate, 10) : null,
-      forWhom,
-      recipientName: forWhom === 'other' ? recipientName || 'Recipient' : undefined,
-      recipientRelation: forWhom === 'other' ? recipientRelation || 'Relative' : undefined,
-    }, user.id);
-    navigation.navigate('TrackTask', { taskId: task.id });
+    setError('');
+    if (!title.trim()) return setError('Tell us what you need done.');
+    if (!location.trim()) return setError('Add where the task needs to be done.');
+    if (taskType === 'ongoing' && !parseInt(rate, 10)) return setError('Set a price per day for an ongoing task.');
+    if (forWhom === 'other' && !recipientName.trim()) return setError("Add the name of the person you're booking for.");
+    setBusy(true);
+    try {
+      const task = await createTask({
+        title: title.trim(),
+        category,
+        description: desc.trim(),
+        taskType,
+        scheduledFor: when.trim() || 'Flexible',
+        location: location.trim(),
+        estCost: taskType === 'one-time' && cost ? parseInt(cost, 10) || null : null,
+        ratePerDay: taskType === 'ongoing' ? parseInt(rate, 10) : null,
+        forWhom,
+        recipientName: forWhom === 'other' ? recipientName.trim() : null,
+        recipientRelation: forWhom === 'other' ? recipientRelation.trim() || null : null,
+        recipientPhone: forWhom === 'other' ? recipientPhone.trim() || null : null,
+      }, user.id);
+      setTitle(''); setDesc(''); setCost(''); setRate(''); setWhen(''); setSelectedTemplate(null);
+      setRecipientName(''); setRecipientRelation(''); setRecipientPhone(''); setForWhom('self');
+      navigation.navigate('TrackTask', { taskId: task.id });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
-      <Badge label="★ Trusted by 12,000+ households" tone="accent" style={{ marginBottom: 14 }} />
+      <View style={styles.topRow}>
+        <Text style={styles.hello}>Hi {(profile?.full_name || '').split(' ')[0] || 'there'} 👋</Text>
+        <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
+          <Text style={styles.avatarText}>{initials(profile?.full_name)}</Text>
+        </Pressable>
+      </View>
+      <Badge label="✓ Every Personal Manager is ID-verified" tone="accent" style={{ marginBottom: 14 }} />
       <Text style={styles.h1}>
         Get your task done by a <Text style={{ color: colors.accent }}>verified Personal Manager</Text>
       </Text>
       <Text style={styles.sub}>
-        Tell us what you need. We match you with a qualified, background-checked Personal Manager who looks after it from start to finish.
+        Tell us what you need. We match you with a qualified, ID-verified Personal Manager who looks after it from start to finish.
       </Text>
 
       <FieldLabel>Not sure how to describe it? Start from a common request</FieldLabel>
@@ -75,7 +99,7 @@ export default function HomeScreen({ navigation }) {
       <Card style={{ marginTop: spacing.lg, gap: spacing.md }}>
         <View>
           <FieldLabel>What do you need done? — pick one above, or write your own</FieldLabel>
-          <TextInput style={styles.input} placeholder='e.g. "Fix a leaking kitchen tap"' value={title} onChangeText={setTitle} />
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder='e.g. "Fix a leaking kitchen tap"' value={title} onChangeText={setTitle} />
         </View>
 
         <View>
@@ -117,22 +141,24 @@ export default function HomeScreen({ navigation }) {
         {taskType === 'one-time' ? (
           <View>
             <FieldLabel>Estimated cost (₹, optional)</FieldLabel>
-            <TextInput style={styles.input} placeholder="e.g. 650" keyboardType="numeric" value={cost} onChangeText={setCost} />
+            <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. 650" keyboardType="numeric" value={cost} onChangeText={setCost} />
           </View>
         ) : (
           <View>
             <FieldLabel>Price per day (₹)</FieldLabel>
-            <TextInput style={styles.input} placeholder="e.g. 400" keyboardType="numeric" value={rate} onChangeText={setRate} />
+            <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. 400" keyboardType="numeric" value={rate} onChangeText={setRate} />
             <Text style={styles.hint}>Charged for each day/visit your Personal Manager comes.</Text>
           </View>
         )}
 
         <View>
+          <FieldLabel>🗓 When?</FieldLabel>
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder='e.g. "Sat 26 Aug, 11 AM" or "Any weekday evening"' value={when} onChangeText={setWhen} />
+        </View>
+
+        <View>
           <FieldLabel>📍 Where does the task need to be done?</FieldLabel>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TextInput style={[styles.input, { flex: 1 }]} placeholder="Flat / area, e.g. Flat 4B, Kandivali West" value={location} onChangeText={setLocation} />
-            <Button label="📍 Use current" size="sm" variant="ghost" onPress={() => setLocation('Current location (auto-detected)')} />
-          </View>
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="Flat / building, area — e.g. Flat 4B, Kandivali West" value={location} onChangeText={setLocation} />
         </View>
 
         <View>
@@ -147,16 +173,21 @@ export default function HomeScreen({ navigation }) {
           <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm }}>
             <View>
               <FieldLabel>Their name</FieldLabel>
-              <TextInput style={styles.input} placeholder="e.g. Kamala Bai" value={recipientName} onChangeText={setRecipientName} />
+              <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. Kamala Bai" value={recipientName} onChangeText={setRecipientName} />
             </View>
             <View>
               <FieldLabel>Relationship to you</FieldLabel>
-              <TextInput style={styles.input} placeholder="e.g. Mother" value={recipientRelation} onChangeText={setRecipientRelation} />
+              <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. Mother" value={recipientRelation} onChangeText={setRecipientRelation} />
+            </View>
+            <View>
+              <FieldLabel>Their phone (so your PM can reach them)</FieldLabel>
+              <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. 98200 12345" keyboardType="phone-pad" value={recipientPhone} onChangeText={setRecipientPhone} />
             </View>
           </View>
         )}
 
-        <Button label="Post your task — it's free" onPress={submit} />
+        <ErrorText>{error}</ErrorText>
+        <Button label={busy ? 'Posting…' : "Post your task — it's free"} onPress={submit} disabled={busy} />
       </Card>
 
       <Text style={[styles.h2, { marginTop: spacing.xl }]}>Your recent tasks</Text>
@@ -169,7 +200,7 @@ export default function HomeScreen({ navigation }) {
                 <Text style={{ fontWeight: '700', fontSize: 14 }}>{t.title}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12.5, marginTop: 2 }}>{t.scheduledFor}</Text>
               </View>
-              <Badge label={STATUS_META[t.status].label} tone={t.status === 'completed' ? 'success' : 'accent'} />
+              <Badge label={STATUS_META[t.status].label} tone={STATUS_META[t.status].tone} />
             </Card>
           </Pressable>
         ))}
@@ -180,6 +211,10 @@ export default function HomeScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  hello: { fontSize: 15, fontWeight: '700', color: colors.muted },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.accentLight, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontWeight: '800', color: colors.accentDark },
   h1: { fontSize: 26, fontWeight: '800', color: colors.text, lineHeight: 32, marginBottom: 8 },
   h2: { fontSize: 17, fontWeight: '700', color: colors.text },
   sub: { color: colors.muted, fontSize: 14.5, lineHeight: 21, marginBottom: 18 },

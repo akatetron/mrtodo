@@ -5,23 +5,34 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#FFFFFF"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.mrtodo.app"
+      "bundleIdentifier": "com.mrtodo.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Mr. Todo uses your photos so you can upload ID and qualification documents."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#FFFFFF"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#123B3F"
       },
       "package": "com.mrtodo.app"
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png",
+      "name": "Mr. Todo",
+      "themeColor": "#123B3F"
     }
   }
 }

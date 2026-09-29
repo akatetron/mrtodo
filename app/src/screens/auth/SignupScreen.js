@@ -9,6 +9,7 @@ export default function SignupScreen({ navigation }) {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [role, setRole] = useState('customer');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -16,7 +17,7 @@ export default function SignupScreen({ navigation }) {
 
   async function submit() {
     setError(''); setBusy(true);
-    const { error } = await signUpWithPassword({ email: email.trim(), password, fullName: fullName.trim(), role });
+    const { error } = await signUpWithPassword({ email: email.trim(), password, fullName: fullName.trim(), phone: phone.trim(), role });
     setBusy(false);
     if (error) setError(error.message);
     else setDone(true);
@@ -44,21 +45,32 @@ export default function SignupScreen({ navigation }) {
         <Button label="Personal Manager" size="sm" variant={role === 'worker' ? 'primary' : 'ghost'} onPress={() => setRole('worker')} style={{ flex: 1 }} />
       </View>
 
+      {role === 'worker' && (
+        <Text style={styles.note}>
+          After signing up you'll fill in a short application — your skills, service area and a photo of a government ID.
+          An admin reviews it, and once you're approved you'll start receiving tasks.
+        </Text>
+      )}
+
       <View style={{ gap: spacing.md }}>
         <View>
           <FieldLabel>Full name</FieldLabel>
-          <TextInput style={styles.input} placeholder="e.g. Priya Sharma" value={fullName} onChangeText={setFullName} />
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. Priya Sharma" value={fullName} onChangeText={setFullName} />
         </View>
         <View>
           <FieldLabel>Email</FieldLabel>
-          <TextInput style={styles.input} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+        </View>
+        <View>
+          <FieldLabel>Mobile number</FieldLabel>
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. 98200 12345" keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
         </View>
         <View>
           <FieldLabel>Password</FieldLabel>
-          <TextInput style={styles.input} placeholder="At least 6 characters" secureTextEntry value={password} onChangeText={setPassword} />
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="At least 6 characters" secureTextEntry value={password} onChangeText={setPassword} />
         </View>
         {!!error && <Text style={styles.error}>{error}</Text>}
-        <Button label={busy ? 'Creating account…' : 'Create account'} onPress={submit} disabled={busy || !fullName || !email || password.length < 6} />
+        <Button label={busy ? 'Creating account…' : 'Create account'} onPress={submit} disabled={busy || !fullName.trim() || !email.trim() || !phone.trim() || password.length < 6} />
         <Button label="Already have an account? Log in" variant="ghost" onPress={() => navigation.navigate('Login')} />
       </View>
     </ScrollView>
@@ -73,4 +85,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13, paddingVertical: 11, fontSize: 14.5, color: colors.text, backgroundColor: colors.surface,
   },
   error: { color: colors.danger, fontSize: 13 },
+  note: {
+    backgroundColor: colors.brassLight, color: colors.brassDark, borderRadius: radius.sm,
+    padding: spacing.md, fontSize: 13, lineHeight: 19, marginBottom: spacing.lg,
+  },
 });

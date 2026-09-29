@@ -49,14 +49,14 @@ export default function LoginScreen({ navigation }) {
       <View style={{ gap: spacing.md }}>
         <View>
           <FieldLabel>Email</FieldLabel>
-          <TextInput style={styles.input} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+          <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
         </View>
 
         {mode === 'password' ? (
           <>
             <View>
               <FieldLabel>Password</FieldLabel>
-              <TextInput style={styles.input} placeholder="••••••••" secureTextEntry value={password} onChangeText={setPassword} />
+              <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="••••••••" secureTextEntry value={password} onChangeText={setPassword} />
             </View>
             {!!error && <Text style={styles.error}>{error}</Text>}
             <Button label={busy ? 'Logging in…' : 'Log in'} onPress={submitPassword} disabled={busy || !email || !password} />
@@ -70,7 +70,7 @@ export default function LoginScreen({ navigation }) {
           <>
             <View>
               <FieldLabel>6-digit code (check your email)</FieldLabel>
-              <TextInput style={styles.input} placeholder="123456" keyboardType="numeric" value={otpCode} onChangeText={setOtpCode} />
+              <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="123456" keyboardType="numeric" value={otpCode} onChangeText={setOtpCode} />
             </View>
             {!!error && <Text style={styles.error}>{error}</Text>}
             <Button label={busy ? 'Verifying…' : 'Confirm code'} onPress={confirmOtp} disabled={busy || !otpCode} />

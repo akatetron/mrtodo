@@ -11,10 +11,13 @@ import HomeScreen from '../screens/HomeScreen';
 import TrackTaskScreen from '../screens/TrackTaskScreen';
 import WorkerHomeScreen from '../screens/WorkerHomeScreen';
 import WorkerJobScreen from '../screens/WorkerJobScreen';
+import PmApplicationScreen from '../screens/PmApplicationScreen';
+import AccountScreen from '../screens/AccountScreen';
 
 const AuthStack = createNativeStackNavigator();
 const CustomerStack = createNativeStackNavigator();
 const WorkerStack = createNativeStackNavigator();
+const ApplyStack = createNativeStackNavigator();
 
 const screenOptions = {
   headerStyle: { backgroundColor: colors.surface },
@@ -38,6 +41,7 @@ function CustomerNavigator() {
     <CustomerStack.Navigator screenOptions={screenOptions}>
       <CustomerStack.Screen name="Home" component={HomeScreen} options={{ title: 'Mr. Todo' }} />
       <CustomerStack.Screen name="TrackTask" component={TrackTaskScreen} options={{ title: 'Track task' }} />
+      <CustomerStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />
     </CustomerStack.Navigator>
   );
 }
@@ -47,7 +51,17 @@ function WorkerNavigator() {
     <WorkerStack.Navigator screenOptions={screenOptions}>
       <WorkerStack.Screen name="WorkerHome" component={WorkerHomeScreen} options={{ title: 'Personal Manager' }} />
       <WorkerStack.Screen name="WorkerJob" component={WorkerJobScreen} options={{ title: 'Task details' }} />
+      <WorkerStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />
     </WorkerStack.Navigator>
+  );
+}
+
+// Personal Managers who aren't approved yet only see their application.
+function ApplyNavigator() {
+  return (
+    <ApplyStack.Navigator screenOptions={screenOptions}>
+      <ApplyStack.Screen name="Apply" component={PmApplicationScreen} options={{ title: 'Become a Personal Manager' }} />
+    </ApplyStack.Navigator>
   );
 }
 
@@ -81,12 +95,20 @@ export default function RootNavigator() {
     );
   }
 
+  if (profile.role === 'worker' && profile.worker_status !== 'approved') {
+    return (
+      <NavigationContainer>
+        <ApplyNavigator />
+      </NavigationContainer>
+    );
+  }
+
   const role = previewRole || profile.role;
 
   return (
     <NavigationContainer>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        {role === 'worker' ? <WorkerNavigator /> : <CustomerNavigator />}
+        {role === 'worker' ? <WorkerNavigator key="worker" /> : <CustomerNavigator key="customer" />}
         {profile.role === 'admin' && (
           <View style={styles.switcher}>
             <Pressable onPress={() => setPreviewRole('customer')} style={[styles.switchBtn, role === 'customer' && styles.switchBtnActive]}>
