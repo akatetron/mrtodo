@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Mr. Todo",
+    "slug": "mr-todo",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#FFFFFF"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mrtodo.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.mrtodo.app"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
