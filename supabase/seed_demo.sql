@@ -42,21 +42,25 @@ begin
   -- email_confirmed_at is set so you can log in without a confirmation email.
   insert into auth.users (
     instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-    raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    -- Supabase's login code reads these as plain text and fails with
+    -- "Database error querying schema" if any is NULL, so set them to ''.
+    confirmation_token, recovery_token, email_change_token_new, email_change,
+    email_change_token_current, phone_change, phone_change_token, reauthentication_token
   )
   values
     ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
      'priya@example.com', crypt('demo1234', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"]}',
-     '{"full_name":"Priya Sharma","role":"customer","phone":"98200 11111"}', now(), now()),
+     '{"full_name":"Priya Sharma","role":"customer","phone":"98200 11111"}', now(), now(), '', '', '', '', '', '', '', ''),
     ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
      'rakesh@example.com', crypt('demo1234', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"]}',
-     '{"full_name":"Rakesh Kumar","role":"worker","phone":"98200 22222"}', now(), now()),
+     '{"full_name":"Rakesh Kumar","role":"worker","phone":"98200 22222"}', now(), now(), '', '', '', '', '', '', '', ''),
     ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
      'admin@example.com', crypt('demo1234', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"]}',
-     '{"full_name":"Mr. Todo Admin","role":"customer","phone":"98200 00000"}', now(), now());
+     '{"full_name":"Mr. Todo Admin","role":"customer","phone":"98200 00000"}', now(), now(), '', '', '', '', '', '', '', '');
 
   select id into v_customer from auth.users where email = 'priya@example.com';
   select id into v_worker   from auth.users where email = 'rakesh@example.com';
