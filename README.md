@@ -35,6 +35,19 @@ Applications page; the applicant's app updates on its own.
 
 1. Set up the database: [`app/SETUP_BACKEND.md`](app/SETUP_BACKEND.md)
    (run `supabase/schema.sql` in your Supabase project — safe to re-run).
+1. Optional, for trying it out: run `supabase/seed_demo.sql` to create one
+   account of each role, all with the password `demo1234`:
+
+   | Role | Email |
+   | --- | --- |
+   | Customer | `priya@example.com` |
+   | Personal Manager (approved) | `rakesh@example.com` |
+   | Admin | `admin@example.com` |
+
+   It also posts two sample tasks, so the app and dashboard have something in
+   them. **Run `supabase/seed_demo_remove.sql` before real users arrive** —
+   these passwords are public, and the admin account can read everyone's
+   tasks and uploaded ID documents.
 2. Run the app: `cd app && npm install && npm start` (scan the QR code with
    Expo Go, or press `w` for the web version).
 3. Run the admin dashboard: `cd admin && npm install && npm run dev`.
