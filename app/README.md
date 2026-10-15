@@ -25,7 +25,7 @@ The database (`../supabase/schema.sql`) and the admin dashboard (`../admin`) liv
 
 ## Running it
 
-You'll need Node.js installed. This project was scaffolded for Expo SDK 51.
+You'll need Node.js installed. This project targets Expo SDK 57.
 
 1. Copy this folder to your computer (already done if you're reading this from your connected folder).
 2. Open a terminal in the `mr-todo-app` folder and install dependencies:
