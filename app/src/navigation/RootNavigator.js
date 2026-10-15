@@ -13,11 +13,14 @@ import WorkerHomeScreen from '../screens/WorkerHomeScreen';
 import WorkerJobScreen from '../screens/WorkerJobScreen';
 import PmApplicationScreen from '../screens/PmApplicationScreen';
 import AccountScreen from '../screens/AccountScreen';
+import AdminHomeScreen from '../screens/admin/AdminHomeScreen';
+import AdminTaskScreen from '../screens/admin/AdminTaskScreen';
 
 const AuthStack = createNativeStackNavigator();
 const CustomerStack = createNativeStackNavigator();
 const WorkerStack = createNativeStackNavigator();
 const ApplyStack = createNativeStackNavigator();
+const AdminStack = createNativeStackNavigator();
 
 const screenOptions = {
   headerStyle: { backgroundColor: colors.surface },
@@ -53,6 +56,16 @@ function WorkerNavigator() {
       <WorkerStack.Screen name="WorkerJob" component={WorkerJobScreen} options={{ title: 'Task details' }} />
       <WorkerStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />
     </WorkerStack.Navigator>
+  );
+}
+
+function AdminNavigator() {
+  return (
+    <AdminStack.Navigator screenOptions={screenOptions}>
+      <AdminStack.Screen name="AdminHome" component={AdminHomeScreen} options={{ title: 'Mr. Todo Admin' }} />
+      <AdminStack.Screen name="AdminTask" component={AdminTaskScreen} options={{ title: 'Task' }} />
+      <AdminStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />
+    </AdminStack.Navigator>
   );
 }
 
@@ -108,9 +121,12 @@ export default function RootNavigator() {
   return (
     <NavigationContainer>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        {role === 'worker' ? <WorkerNavigator key="worker" /> : <CustomerNavigator key="customer" />}
+        {role === 'admin' ? <AdminNavigator key="admin" /> : role === 'worker' ? <WorkerNavigator key="worker" /> : <CustomerNavigator key="customer" />}
         {profile.role === 'admin' && (
           <View style={styles.switcher}>
+            <Pressable onPress={() => setPreviewRole('admin')} style={[styles.switchBtn, role === 'admin' && styles.switchBtnActive]}>
+              <Text style={[styles.switchText, role === 'admin' && styles.switchTextActive]}>🛠 Admin</Text>
+            </Pressable>
             <Pressable onPress={() => setPreviewRole('customer')} style={[styles.switchBtn, role === 'customer' && styles.switchBtnActive]}>
               <Text style={[styles.switchText, role === 'customer' && styles.switchTextActive]}>👤 Customer view</Text>
             </Pressable>
