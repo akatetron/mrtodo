@@ -62,9 +62,24 @@ do $$ begin
     check (worker_status in ('none', 'draft', 'pending', 'more_info', 'approved', 'rejected', 'suspended'));
 exception when duplicate_object then null; end $$;
 
+-- Admin levels: 'super' can do everything; 'support' can run day-to-day work
+-- (assign, reassign, cancel, handle reports) but cannot approve or suspend
+-- Personal Managers, see ID documents, handle money or send broadcasts.
+-- Admins created before levels existed have no level and count as super.
+alter table profiles add column if not exists admin_level text;
+do $$ begin
+  alter table profiles add constraint profiles_admin_level_check check (admin_level in ('super', 'support'));
+exception when duplicate_object then null; end $$;
+
 create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles where id = auth.uid() and role = 'admin');
+$$;
+
+create or replace function public.is_super_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from profiles
+                  where id = auth.uid() and role = 'admin' and coalesce(admin_level, 'super') = 'super');
 $$;
 
 -- Earlier versions let anyone who picked "Personal Manager" at signup work
@@ -161,6 +176,8 @@ create table if not exists pm_documents (
   created_at timestamptz default now()
 );
 
+alter table pm_documents add column if not exists expires_on date;
+
 create table if not exists audit_log (
   id bigserial primary key,
   actor_id uuid references profiles (id) on delete set null,
@@ -197,7 +214,10 @@ $$;
 create or replace function public.guard_profile_update()
 returns trigger language plpgsql set search_path = public as $$
 begin
-  if current_user in ('authenticated', 'anon') and not is_admin() then
+  if current_user in ('authenticated', 'anon') and new.admin_level is distinct from old.admin_level then
+    raise exception 'Admin levels can only be changed by a super admin from the admin tools.';
+  end if;
+  if current_user in ('authenticated', 'anon') and not is_super_admin() then
     if new.id is distinct from old.id
        or new.role is distinct from old.role
        or new.worker_status is distinct from old.worker_status
@@ -262,6 +282,7 @@ begin
   values (new.id, lpad((abs(('x' || substr(md5(gen_random_uuid()::text), 1, 8))::bit(32)::int) % 10000)::text, 4, '0'))
   on conflict (task_id) do nothing;
   perform log_action('task.created', 'task', new.id, jsonb_build_object('title', new.title, 'category', new.category));
+  perform notify_admins('task', 'New task needs a Personal Manager', new.title, new.id);
   return new;
 end $$;
 
@@ -328,6 +349,7 @@ begin
   where id = me.id;
 
   perform log_action('pm.applied', 'profile', me.id, jsonb_build_object('categories', p_categories));
+  perform notify_admins('application', 'New Personal Manager application', trim(p_full_name) || ' applied', null);
 end $$;
 
 -- Admin decides on an application, or suspends / reinstates a PM.
@@ -335,7 +357,7 @@ create or replace function public.review_pm_application(p_worker uuid, p_decisio
 returns void language plpgsql security definer set search_path = public as $$
 declare w profiles;
 begin
-  if not is_admin() then raise exception 'Admins only.'; end if;
+  if not is_super_admin() then raise exception 'Only a super admin can review applications.'; end if;
   if p_decision not in ('approved', 'rejected', 'more_info', 'suspended') then
     raise exception 'Unknown decision %', p_decision;
   end if;
@@ -351,6 +373,13 @@ begin
 
   perform log_action('pm.' || p_decision, 'profile', p_worker,
     jsonb_build_object('from', w.worker_status, 'note', p_note, 'name', w.full_name));
+  perform notify_user(p_worker, 'application',
+    case p_decision
+      when 'approved' then 'You are approved — welcome to Mr. Todo'
+      when 'rejected' then 'Your application was not approved'
+      when 'more_info' then 'We need a little more information'
+      else 'Your account has been paused' end,
+    nullif(trim(p_note), ''), null);
 end $$;
 
 -- Ranked list of approved PMs for a task, best first. Admins only.
@@ -608,13 +637,19 @@ create policy "visits follow task visibility" on task_visits
 -- application is still editable.
 drop policy if exists "pm docs: owner and admin read" on pm_documents;
 create policy "pm docs: owner and admin read" on pm_documents
-  for select using (worker_id = auth.uid() or is_admin());
+  for select using (worker_id = auth.uid() or is_super_admin());
 drop policy if exists "pm docs: owner adds while editable" on pm_documents;
 create policy "pm docs: owner adds while editable" on pm_documents
   for insert with check (
     worker_id = auth.uid()
     and storage_path like auth.uid()::text || '/%'
-    and exists (select 1 from profiles where id = auth.uid() and role = 'worker' and worker_status in ('draft', 'more_info'))
+    and exists (
+      select 1 from profiles
+       where id = auth.uid() and role = 'worker'
+         and (worker_status in ('draft', 'more_info')
+              -- an approved PM may add or renew a certificate, never a new ID
+              or (worker_status = 'approved' and pm_documents.doc_type <> 'id'))
+    )
   );
 drop policy if exists "pm docs: owner removes while editable" on pm_documents;
 create policy "pm docs: owner removes while editable" on pm_documents
@@ -639,7 +674,7 @@ create policy "pm-documents: owner uploads" on storage.objects
 drop policy if exists "pm-documents: owner or admin reads" on storage.objects;
 create policy "pm-documents: owner or admin reads" on storage.objects
   for select to authenticated
-  using (bucket_id = 'pm-documents' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin()));
+  using (bucket_id = 'pm-documents' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_super_admin()));
 drop policy if exists "pm-documents: owner deletes" on storage.objects;
 create policy "pm-documents: owner deletes" on storage.objects
   for delete to authenticated
@@ -652,6 +687,338 @@ do $$
 declare tbl text;
 begin
   foreach tbl in array array['tasks', 'task_visits', 'profiles', 'audit_log'] loop
+    if not exists (select 1 from pg_publication_tables
+                   where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = tbl) then
+      execute format('alter publication supabase_realtime add table public.%I', tbl);
+    end if;
+  end loop;
+end $$;
+
+-- 11. Notifications ---------------------------------------------------------------
+-- In-app inbox for everyone: a PM's new offer, a customer's "your PM accepted",
+-- an admin's "new application". Written by the database itself when things
+-- happen (see notify_task_change below), read live by the app.
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles (id) on delete cascade,
+  kind text not null default 'info',     -- 'task' | 'application' | 'report' | 'payout' | 'announcement' | 'info'
+  title text not null,
+  body text,
+  task_id uuid references tasks (id) on delete cascade,
+  read_at timestamptz,
+  created_at timestamptz default now()
+);
+create index if not exists notifications_user_idx on notifications (user_id, created_at desc);
+
+create or replace function public.notify_user(p_user uuid, p_kind text, p_title text, p_body text, p_task uuid)
+returns void language sql security definer set search_path = public as $$
+  insert into notifications (user_id, kind, title, body, task_id)
+  select p_user, p_kind, p_title, p_body, p_task
+   where p_user is not null and exists (select 1 from profiles where id = p_user);
+$$;
+
+create or replace function public.notify_admins(p_kind text, p_title text, p_body text, p_task uuid)
+returns void language sql security definer set search_path = public as $$
+  insert into notifications (user_id, kind, title, body, task_id)
+  select id, p_kind, p_title, p_body, p_task from profiles where role = 'admin';
+$$;
+
+revoke execute on function public.notify_user(uuid, text, text, text, uuid) from public, anon, authenticated;
+revoke execute on function public.notify_admins(text, text, text, uuid) from public, anon, authenticated;
+
+create or replace function public.notify_task_change()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare actor uuid := auth.uid();
+begin
+  if new.status = 'matched' and new.assigned_worker_id is not null
+     and (old.status is distinct from 'matched' or old.assigned_worker_id is distinct from new.assigned_worker_id) then
+    perform notify_user(new.assigned_worker_id, 'task', 'New task offered to you', new.title, new.id);
+  elsif new.status = 'assigned' and old.status = 'matched' then
+    perform notify_user(new.customer_id, 'task', 'Your Personal Manager accepted', new.title, new.id);
+  elsif new.status = 'in_progress' and old.status is distinct from 'in_progress' then
+    perform notify_user(new.customer_id, 'task', 'Work has started', new.title, new.id);
+  elsif new.status = 'completed' and old.status is distinct from 'completed' then
+    perform notify_user(new.customer_id, 'task', 'Task completed — please rate your Personal Manager', new.title, new.id);
+    perform notify_user(new.assigned_worker_id, 'task', 'Task completed', new.title, new.id);
+  elsif new.status = 'cancelled' and old.status is distinct from 'cancelled' then
+    perform notify_user(old.assigned_worker_id, 'task', 'A task you were on was cancelled', new.title, new.id);
+    if actor is distinct from new.customer_id then
+      perform notify_user(new.customer_id, 'task', 'Your task was cancelled', coalesce(new.cancel_reason, new.title), new.id);
+    end if;
+  elsif new.status = 'requested' and old.status in ('matched', 'assigned') then
+    perform notify_admins('task', 'A task needs reassigning', new.title, new.id);
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists notify_task_change on tasks;
+create trigger notify_task_change after update of status, assigned_worker_id on tasks
+  for each row execute procedure public.notify_task_change();
+
+create or replace function public.mark_notifications_read(p_ids uuid[] default null)
+returns void language sql security definer set search_path = public as $$
+  update notifications set read_at = now()
+   where user_id = auth.uid() and read_at is null and (p_ids is null or id = any (p_ids));
+$$;
+
+-- 12. Offer time-out ----------------------------------------------------------------
+-- A PM who doesn't answer an offer shouldn't block the task. After p_minutes
+-- the offer lapses, the task goes back to the queue and the admins are told.
+-- expire_stale_offers_internal is for the scheduler (below); admins call
+-- expire_stale_offers from the app.
+create or replace function public.expire_stale_offers_internal(p_minutes int default 15)
+returns int language plpgsql security definer set search_path = public as $$
+declare t tasks; n int := 0;
+begin
+  for t in select * from tasks
+            where status = 'matched' and assigned_at < now() - make_interval(mins => greatest(p_minutes, 1))
+            for update skip locked loop
+    insert into task_declines (task_id, worker_id, reason) values (t.id, t.assigned_worker_id, 'No response')
+      on conflict (task_id, worker_id) do update set reason = 'No response', created_at = now();
+    update tasks set status = 'requested', assigned_worker_id = null, assigned_at = null, accepted_at = null where id = t.id;
+    perform log_action('task.offer_expired', 'task', t.id,
+      jsonb_build_object('worker_id', t.assigned_worker_id, 'title', t.title, 'minutes', p_minutes));
+    perform notify_user(t.assigned_worker_id, 'task', 'An offer lapsed', t.title || ' went back to the queue because it wasn''t answered in time.', t.id);
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+revoke execute on function public.expire_stale_offers_internal(int) from public, anon, authenticated;
+
+create or replace function public.expire_stale_offers(p_minutes int default 15)
+returns int language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  return expire_stale_offers_internal(p_minutes);
+end $$;
+
+-- Run it every 5 minutes if this project has the pg_cron extension. If not,
+-- nothing breaks: the admin tools run the same check whenever an admin opens
+-- the task queue.
+do $$ begin
+  create extension if not exists pg_cron;
+  perform cron.schedule('mrtodo-expire-offers', '*/5 * * * *', 'select public.expire_stale_offers_internal(15)');
+exception when others then
+  raise notice 'pg_cron not available (%): offers will be expired when an admin opens the queue.', sqlerrm;
+end $$;
+
+-- 13. Reports (disputes) ---------------------------------------------------------------
+create table if not exists reports (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks (id) on delete cascade,
+  reporter_id uuid not null references profiles (id) on delete cascade,
+  reason text not null check (reason in ('no_show', 'late', 'quality', 'behaviour', 'safety', 'payment', 'other')),
+  details text,
+  status text not null default 'open' check (status in ('open', 'resolved')),
+  resolution_note text,
+  resolved_by uuid references profiles (id),
+  created_at timestamptz default now(),
+  resolved_at timestamptz
+);
+create index if not exists reports_status_idx on reports (status, created_at desc);
+
+create or replace function public.report_task(p_task uuid, p_reason text, p_details text default null)
+returns void language plpgsql security definer set search_path = public as $$
+declare t tasks; r uuid;
+begin
+  select * into t from tasks where id = p_task;
+  if t.id is null or not (t.customer_id = auth.uid() or t.assigned_worker_id = auth.uid()) then
+    raise exception 'You can only report a problem on your own task.';
+  end if;
+  if exists (select 1 from reports where task_id = p_task and reporter_id = auth.uid() and status = 'open') then
+    raise exception 'You already have an open report on this task. Our team will be in touch.';
+  end if;
+  insert into reports (task_id, reporter_id, reason, details)
+  values (p_task, auth.uid(), p_reason, nullif(trim(p_details), '')) returning id into r;
+  perform log_action('task.reported', 'task', p_task, jsonb_build_object('reason', p_reason, 'report_id', r, 'title', t.title));
+  perform notify_admins('report', 'Problem reported', t.title || ' — ' || replace(p_reason, '_', ' '), p_task);
+end $$;
+
+create or replace function public.resolve_report(p_report uuid, p_note text)
+returns void language plpgsql security definer set search_path = public as $$
+declare r reports; t tasks;
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  if coalesce(trim(p_note), '') = '' then raise exception 'Write a short note on how this was resolved.'; end if;
+  select * into r from reports where id = p_report for update;
+  if r.id is null then raise exception 'Report not found.'; end if;
+  if r.status = 'resolved' then raise exception 'Already resolved.'; end if;
+  update reports set status = 'resolved', resolution_note = trim(p_note), resolved_by = auth.uid(), resolved_at = now()
+   where id = p_report;
+  select * into t from tasks where id = r.task_id;
+  perform log_action('report.resolved', 'task', r.task_id, jsonb_build_object('note', p_note, 'title', t.title));
+  perform notify_user(r.reporter_id, 'report', 'Your report was resolved', trim(p_note), r.task_id);
+end $$;
+
+-- 14. Proof-of-work photos ------------------------------------------------------------------
+create table if not exists task_photos (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks (id) on delete cascade,
+  uploader_id uuid not null default auth.uid() references profiles (id) on delete cascade,
+  kind text not null default 'other' check (kind in ('before', 'after', 'other')),
+  storage_path text not null,           -- "<task id>/<file>" in the private "task-photos" bucket
+  created_at timestamptz default now()
+);
+create index if not exists task_photos_task_idx on task_photos (task_id);
+
+-- Folder names come from storage paths; a malformed one must read as "no
+-- match" instead of raising an error inside a storage policy.
+create or replace function public.safe_uuid(p text)
+returns uuid language plpgsql immutable as $$
+begin
+  return p::uuid;
+exception when others then
+  return null;
+end $$;
+
+create or replace function public.can_access_task(p_task uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from tasks t
+                  where t.id = p_task
+                    and (t.customer_id = auth.uid() or t.assigned_worker_id = auth.uid() or is_admin()));
+$$;
+
+create or replace function public.is_task_worker(p_task uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from tasks t where t.id = p_task and t.assigned_worker_id = auth.uid());
+$$;
+
+insert into storage.buckets (id, name, public)
+values ('task-photos', 'task-photos', false)
+on conflict (id) do nothing;
+
+-- 15. Payouts ---------------------------------------------------------------------------------
+-- A record of money paid to a Personal Manager. "Owed" = earned from completed
+-- tasks minus what has been paid out. No money moves through the app yet.
+create table if not exists payouts (
+  id uuid primary key default gen_random_uuid(),
+  worker_id uuid not null references profiles (id) on delete cascade,
+  amount numeric(10,2) not null check (amount > 0),
+  note text,
+  paid_by uuid references profiles (id),
+  paid_at timestamptz default now()
+);
+create index if not exists payouts_worker_idx on payouts (worker_id, paid_at desc);
+
+create or replace function public.record_payout(p_worker uuid, p_amount numeric, p_note text default null)
+returns void language plpgsql security definer set search_path = public as $$
+declare w profiles;
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can record payouts.'; end if;
+  select * into w from profiles where id = p_worker;
+  if w.id is null or w.role <> 'worker' then raise exception 'Not a Personal Manager account.'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'Enter an amount above zero.'; end if;
+  insert into payouts (worker_id, amount, note, paid_by) values (p_worker, p_amount, nullif(trim(p_note), ''), auth.uid());
+  perform log_action('payout.recorded', 'profile', p_worker, jsonb_build_object('amount', p_amount, 'note', p_note, 'name', w.full_name));
+  perform notify_user(p_worker, 'payout', 'Payout recorded: ₹' || trim_scale(p_amount)::text, nullif(trim(p_note), ''), null);
+end $$;
+
+-- 16. Broadcast messages --------------------------------------------------------------------------
+create or replace function public.send_announcement(p_audience text, p_title text, p_body text default null)
+returns int language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can send announcements.'; end if;
+  if p_audience not in ('workers', 'customers', 'all') then raise exception 'Choose who to send it to.'; end if;
+  if coalesce(trim(p_title), '') = '' then raise exception 'Add a title.'; end if;
+  insert into notifications (user_id, kind, title, body)
+  select id, 'announcement', trim(p_title), nullif(trim(p_body), '')
+    from profiles
+   where (p_audience in ('workers', 'all') and role = 'worker' and worker_status = 'approved')
+      or (p_audience in ('customers', 'all') and role = 'customer');
+  get diagnostics n = row_count;
+  perform log_action('announcement.sent', 'announcement', null, jsonb_build_object('audience', p_audience, 'title', p_title, 'recipients', n));
+  return n;
+end $$;
+
+-- 17. Admin levels + Personal Manager reliability -----------------------------------------------
+create or replace function public.set_admin_level(p_user uuid, p_level text)
+returns void language plpgsql security definer set search_path = public as $$
+declare u profiles;
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change admin levels.'; end if;
+  if p_level not in ('super', 'support') then raise exception 'Level must be super or support.'; end if;
+  select * into u from profiles where id = p_user for update;
+  if u.id is null or u.role <> 'admin' then raise exception 'That account is not an admin.'; end if;
+  if p_level = 'support' and coalesce(u.admin_level, 'super') = 'super'
+     and (select count(*) from profiles where role = 'admin' and coalesce(admin_level, 'super') = 'super') <= 1 then
+    raise exception 'There must always be at least one super admin.';
+  end if;
+  update profiles set admin_level = p_level where id = p_user;
+  perform log_action('admin.level_changed', 'profile', p_user, jsonb_build_object('level', p_level, 'name', u.full_name));
+end $$;
+
+-- How dependable each approved PM is, from what the audit log recorded.
+create or replace function public.pm_reliability()
+returns table (worker_id uuid, offers int, accepted int, declined int, expired int, completed int, avg_accept_minutes numeric)
+language sql stable security definer set search_path = public as $$
+  select p.id,
+    (select count(*)::int from audit_log a where a.action in ('task.assigned', 'task.reassigned') and a.details->>'worker_id' = p.id::text),
+    (select count(*)::int from audit_log a where a.action = 'task.accepted' and a.actor_id = p.id),
+    (select count(*)::int from audit_log a where a.action = 'task.declined' and a.actor_id = p.id),
+    (select count(*)::int from audit_log a where a.action = 'task.offer_expired' and a.details->>'worker_id' = p.id::text),
+    (select count(*)::int from tasks t where t.assigned_worker_id = p.id and t.status = 'completed'),
+    (select round((avg(extract(epoch from (t.accepted_at - t.assigned_at)) / 60))::numeric, 0)
+       from tasks t where t.assigned_worker_id = p.id and t.accepted_at is not null and t.assigned_at is not null)
+  from profiles p
+  where p.role = 'worker' and is_admin();
+$$;
+
+-- 18. Row Level Security for the new tables ---------------------------------------------------------
+alter table notifications enable row level security;
+alter table reports enable row level security;
+alter table task_photos enable row level security;
+alter table payouts enable row level security;
+
+drop policy if exists "notifications: own" on notifications;
+create policy "notifications: own" on notifications for select using (user_id = auth.uid());
+
+drop policy if exists "reports: reporter and admin" on reports;
+create policy "reports: reporter and admin" on reports
+  for select using (reporter_id = auth.uid() or is_admin());
+
+-- Photos: anyone on the task can see them; only the assigned PM adds them,
+-- while the work is going on, and can take back their own until it is done.
+drop policy if exists "photos: task members read" on task_photos;
+create policy "photos: task members read" on task_photos
+  for select using (can_access_task(task_id));
+drop policy if exists "photos: assigned PM adds" on task_photos;
+create policy "photos: assigned PM adds" on task_photos
+  for insert with check (
+    uploader_id = auth.uid()
+    and is_task_worker(task_id)
+    and storage_path like task_id::text || '/%'
+    and exists (select 1 from tasks t where t.id = task_id and t.status in ('assigned', 'in_progress'))
+  );
+drop policy if exists "photos: uploader removes while active" on task_photos;
+create policy "photos: uploader removes while active" on task_photos
+  for delete using (
+    uploader_id = auth.uid()
+    and exists (select 1 from tasks t where t.id = task_id and t.status in ('assigned', 'in_progress'))
+  );
+
+drop policy if exists "payouts: PM and super admin read" on payouts;
+create policy "payouts: PM and super admin read" on payouts
+  for select using (worker_id = auth.uid() or is_super_admin());
+
+drop policy if exists "task-photos: PM uploads" on storage.objects;
+create policy "task-photos: PM uploads" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'task-photos' and public.is_task_worker(public.safe_uuid((storage.foldername(name))[1])));
+drop policy if exists "task-photos: task members read" on storage.objects;
+create policy "task-photos: task members read" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'task-photos' and public.can_access_task(public.safe_uuid((storage.foldername(name))[1])));
+drop policy if exists "task-photos: uploader deletes" on storage.objects;
+create policy "task-photos: uploader deletes" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'task-photos' and public.is_task_worker(public.safe_uuid((storage.foldername(name))[1])));
+
+-- Live updates for the new tables.
+do $$
+declare tbl text;
+begin
+  foreach tbl in array array['notifications', 'reports', 'task_photos', 'payouts'] loop
     if not exists (select 1 from pg_publication_tables
                    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = tbl) then
       execute format('alter publication supabase_realtime add table public.%I', tbl);
