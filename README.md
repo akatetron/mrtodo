@@ -24,6 +24,25 @@ by the Mr. Todo team, and the team matches each task to the right PM.
 
 Every step updates live on all three screens and is recorded in the audit log.
 
+## What's in it
+
+**Customers:** post a task (with a time, saved addresses, "book again" on past tasks), watch it progress,
+see before/after photos from the Personal Manager, cancel, rate, report a problem, get notifications.
+
+**Personal Managers:** apply with ID and certificates, accept or decline offers, log visits, upload
+before/after photos, finish with the customer's code, track earnings, renew certificates (with a warning
+before they expire), report a problem, get notifications.
+
+**Admins** (inside the app, under the **Tools** button, and in the separate web dashboard):
+task queue with search and filters, ranked Personal Manager shortlist and one-click assign, offers that
+lapse after 15 minutes without an answer, application review with ID previews, people profiles with
+reliability stats and warning flags, reports inbox, ratings and reviews (lowest first), money (job value,
+platform share, what each Personal Manager is owed, payout records), insights (demand by category and
+area, where to recruit), broadcast messages, CSV export, and two admin levels.
+
+**Not built yet:** push notifications to a locked phone (notifications show in the in-app bell), chat
+between customer and Personal Manager, address autocomplete and maps, two-factor sign-in, real payments.
+
 ## Becoming a Personal Manager
 
 Sign up in the app as a Personal Manager → fill in skills, service area and
@@ -42,7 +61,8 @@ Applications page; the applicant's app updates on its own.
    | --- | --- |
    | Customer | `priya@example.com` |
    | Personal Manager (approved) | `rakesh@example.com` |
-   | Admin | `admin@example.com` |
+   | Admin (super: can do everything) | `admin@example.com` |
+   | Admin (support: no approvals, ID documents, money or broadcasts) | `support@example.com` |
 
    It also posts two sample tasks, so the app and dashboard have something in
    them. **Run `supabase/seed_demo_remove.sql` before real users arrive** —

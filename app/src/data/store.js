@@ -86,8 +86,10 @@ function mapTask(row, visits, otp) {
     customerRatingOfWorker: row.customer_rating_of_worker == null ? null : Number(row.customer_rating_of_worker),
     workerRatingOfCustomer: row.worker_rating_of_customer == null ? null : Number(row.worker_rating_of_customer),
     cancelReason: row.cancel_reason,
+    customerReview: row.customer_review,
     createdAt: row.created_at,
     completedAt: row.completed_at,
+    assignedAt: row.assigned_at,
     visits: (visits || []).map((v) => ({
       id: v.id,
       date: new Date(v.created_at).toLocaleDateString(),
@@ -264,7 +266,7 @@ export async function listMyDocuments(userId) {
 }
 
 // `file` is an asset from expo-document-picker: { uri, name, mimeType }.
-export async function uploadDocument(userId, docType, label, file) {
+export async function uploadDocument(userId, docType, label, file, expiresOn) {
   const safeName = (file.name || 'document').replace(/[^\w.\-]+/g, '_');
   const path = `${userId}/${Date.now()}-${safeName}`;
   const body = await (await fetch(file.uri)).arrayBuffer();
@@ -274,6 +276,8 @@ export async function uploadDocument(userId, docType, label, file) {
   if (upErr) throw new Error(upErr.message);
   const { error } = await supabase.from('pm_documents').insert({
     worker_id: userId, doc_type: docType, label: label || file.name, storage_path: path,
+    // only sent when given, so this still works on a database without the column
+    ...(expiresOn ? { expires_on: expiresOn } : {}),
   });
   if (error) {
     await supabase.storage.from('pm-documents').remove([path]);

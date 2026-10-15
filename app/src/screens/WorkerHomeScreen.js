@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Switch } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { Card, Badge, ErrorText } from '../components/UI';
 import {
-  useTasks, assignedTasksFor, catMeta, STATUS_META, initials, pmEarning, formatRating, updateMyProfile,
+  useTasks, assignedTasksFor, catMeta, STATUS_META, initials, pmEarning, formatRating, updateMyProfile, listMyDocuments,
 } from '../data/store';
 import { useAuth } from '../lib/AuthContext';
+import NotificationBell from '../components/NotificationBell';
+import { docExpiry, expiryText } from '../data/extras';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -13,6 +15,8 @@ export default function WorkerHomeScreen({ navigation }) {
   useTasks();
   const { profile: me, refreshProfile } = useAuth();
   const [error, setError] = useState('');
+  const [docs, setDocs] = useState([]);
+  useEffect(() => { if (me?.id) listMyDocuments(me.id).then(setDocs).catch(() => {}); }, [me?.id]);
   if (!me) return <Text style={{ padding: 20 }}>Loading your profile…</Text>;
 
   const mine = assignedTasksFor(me.id);
@@ -37,10 +41,25 @@ export default function WorkerHomeScreen({ navigation }) {
           <Text style={styles.small}>Signed in as</Text>
           <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{me.full_name}</Text>
         </View>
-        <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
-          <Text style={styles.avatarText}>{initials(me.full_name)}</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <NotificationBell navigation={navigation} />
+          <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
+            <Text style={styles.avatarText}>{initials(me.full_name)}</Text>
+          </Pressable>
+        </View>
       </View>
+
+      {docs.filter((d) => ['expired', 'soon'].includes(docExpiry(d)?.state)).map((d) => (
+        <Pressable key={d.id} onPress={() => navigation.navigate('Account')}>
+          <View style={[styles.expiry, docExpiry(d).state === 'expired' && { backgroundColor: colors.dangerLight }]}>
+            <Text style={{ fontSize: 18 }}>📄</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontWeight: '700', fontSize: 13.5, color: colors.text }}>{d.label || 'A document'}</Text>
+              <Text style={{ fontSize: 12.5, color: colors.muted }}>{expiryText(d)}. Tap to add a renewed copy.</Text>
+            </View>
+          </View>
+        </Pressable>
+      ))}
 
       <Card style={styles.onlineCard}>
         <View style={{ flex: 1 }}>
@@ -120,6 +139,7 @@ const styles = StyleSheet.create({
   small: { color: colors.muted, fontSize: 13, fontWeight: '600', marginBottom: 6 },
   avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.accentLight, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontWeight: '800', color: colors.accentDark },
+  expiry: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderRadius: radius.md, backgroundColor: colors.brassLight, marginBottom: spacing.md },
   onlineCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: spacing.md },
   newAssignment: {
     flexDirection: 'row', alignItems: 'center', gap: 12, padding: 15, borderRadius: radius.lg,

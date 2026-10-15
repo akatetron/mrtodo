@@ -52,6 +52,18 @@ export function FieldLabel({ children }) {
   return <Text style={styles.fieldLabel}>{children}</Text>;
 }
 
+// Selectable pill, for filters and single/multi choices.
+export function Chip({ label, selected, onPress, tone = 'accent', style }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.chip, selected && (tone === 'danger' ? styles.chipOnDanger : styles.chipOn), style]}
+    >
+      <Text style={[styles.chipText, selected && { color: tone === 'danger' ? colors.danger : colors.accentDark }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function Input({ style, ...props }) {
   return <TextInput placeholderTextColor={colors.faint} style={[styles.input, props.multiline && styles.inputMulti, style]} {...props} />;
 }
@@ -143,6 +155,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.surface,
   },
+  chip: {
+    paddingHorizontal: 13, paddingVertical: 8, borderRadius: radius.pill,
+    borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface,
+  },
+  chipOn: { borderColor: colors.accent, backgroundColor: colors.accentLight },
+  chipOnDanger: { borderColor: colors.danger, backgroundColor: colors.dangerLight },
+  chipText: { fontSize: 13, fontWeight: '700', color: colors.muted },
   inputMulti: { height: 84, textAlignVertical: 'top' },
   error: { color: colors.danger, fontSize: 13, lineHeight: 18 },
   fieldLabel: {

@@ -21,6 +21,10 @@ What admins do here:
 
 Everything updates live.
 
+> The same admin tools, plus reports, reviews, money, insights, broadcasts and admin levels, are also built
+> into the mobile app (the **Tools** button on the admin home). This web dashboard has the original set:
+> overview, task queue, applications, Personal Managers and the audit log.
+
 ## Run it
 
 ```

@@ -51,15 +51,38 @@ There's no signup option for Admin on purpose — you promote an account manuall
    ```
 3. Sign in to the admin dashboard (`admin/`) with that account. In the mobile app, admins also get a Customer/PM view switcher at the bottom.
 
+## Updating an existing project
+
+Whenever a new version of `supabase/schema.sql` comes along, paste it into the SQL Editor and run it again.
+It only adds and upgrades, never deletes, so it is safe on a project with data. The app tolerates running
+*before* you update: new features simply hide or say "needs the latest database update" instead of crashing.
+
+The latest version adds notifications, offer time-outs, reports, proof-of-work photos, document expiry,
+payouts, broadcasts, reliability stats and admin levels.
+
+**Offer time-out:** an offer nobody answers returns to the queue after 15 minutes. If your project has the
+`pg_cron` extension the database does this every 5 minutes by itself; if not, it happens whenever an admin
+has the app open (every minute). To turn pg_cron on: Supabase dashboard → Database → Extensions → pg_cron,
+then run schema.sql again.
+
+**Admin levels:** admins you made before this update count as *super* admins. Change someone to *support*
+from Tools → Admin team. A support admin can assign, reassign, cancel and complete tasks and handle reports,
+but cannot approve or suspend Personal Managers, open ID documents, record payouts or send broadcasts.
+
 ## What this gives you vs. what's still manual
 
-Working now: real accounts; PM applications with ID upload and admin approval; admin assignment from a ranked shortlist; accept/decline/start/complete on the PM's phone with the completion code checked by the database (the PM never sees it); ratings both ways; cancellations; a full audit log; live sync everywhere; row-level security so people only see their own data and the person they're working with.
+Working now: everything in the list in the top-level README, with the rules enforced by the database (so a
+modified app can't bypass them).
 
 Still to build when you're ready:
-- **SMS / push notifications** — today people see changes when the app is open. Next step: Expo push notifications for "new task offered" and "PM accepted", and SMS for the completion code.
-- **Offer time-out** — if a PM doesn't accept, an admin reassigns from the queue (the Overview shows how long offers have waited). Automatic re-offer after N minutes needs a scheduled job (Supabase cron).
-- **Payments** — prices are recorded and the dashboard estimates platform share, but no money moves yet (Razorpay is the usual choice in India).
-- **Real location / distance** — matching uses the PM's service-area name vs the task address. GPS + distance needs `expo-location` and PostGIS.
+- **Push notifications to a locked phone.** The in-app bell works now. Waking a phone needs Expo push tokens, an
+  Apple/Google credential, and a small Supabase Edge Function that sends when a notification row is created.
+  SMS for the completion code is similar.
+- **Payments.** Money is recorded (jobs, shares, payouts) but nothing is charged or paid in the app. Razorpay is the
+  usual choice in India.
+- **Real distance.** Matching compares the Personal Manager's area name with the task address. GPS and distance
+  need `expo-location` and PostGIS.
+- **Chat, maps and address autocomplete, two-factor sign-in for admins.**
 
 ## Costs
 

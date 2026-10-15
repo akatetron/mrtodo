@@ -1,10 +1,12 @@
 // Admin home: every task on the platform, split into what needs a Personal
 // Manager, what is under way, and what is finished.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../../theme';
-import { Card, Badge } from '../../components/UI';
-import { useTasks, catMeta, STATUS_META, initials, timeAgo } from '../../data/store';
+import { Card, Badge, Chip, Input } from '../../components/UI';
+import NotificationBell from '../../components/NotificationBell';
+import { useTasks, catMeta, STATUS_META, initials, timeAgo, refreshAll, CATEGORIES, shortId } from '../../data/store';
+import { expireStaleOffers, adminCounts } from '../../data/adminData';
 import { useAuth } from '../../lib/AuthContext';
 
 const TABS = [
@@ -32,11 +34,38 @@ export default function AdminHomeScreen({ navigation }) {
   const tasks = useTasks();
   const { profile } = useAuth();
   const [tab, setTab] = useState('queue');
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('all');
+  const [attention, setAttention] = useState(0);
+
+  // An offer nobody answers should not block the task: every minute, put stale
+  // ones back in the queue. (The database also does this every 5 minutes when it can.)
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      const n = await expireStaleOffers(15);
+      if (!stop && n > 0) refreshAll();
+    };
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => { stop = true; clearInterval(id); };
+  }, []);
+
+  // The badge on Tools: applications to review plus open reports.
+  useEffect(() => {
+    const load = () => adminCounts().then((c) => setAttention(c.applications + c.reports)).catch(() => {});
+    load();
+    return navigation.addListener('focus', load);
+  }, [navigation]);
 
   const current = TABS.find((t) => t.id === tab);
   const counts = Object.fromEntries(TABS.map((t) => [t.id, tasks.filter(t.match).length]));
   // Oldest first in the queue so nobody waits longest; newest first elsewhere.
-  const list = tasks.filter(current.match);
+  const q = search.trim().toLowerCase();
+  const list = tasks
+    .filter(current.match)
+    .filter((t) => category === 'all' || t.category === category)
+    .filter((t) => !q || [t.title, t.location, t.customer?.name, t.worker?.name, shortId(t.id)].some((v) => v && v.toLowerCase().includes(q)));
   const shown = tab === 'queue' ? [...list].reverse() : list;
 
   return (
@@ -46,9 +75,22 @@ export default function AdminHomeScreen({ navigation }) {
           <Text style={styles.small}>Admin</Text>
           <Text style={styles.name}>{profile?.full_name}</Text>
         </View>
-        <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
-          <Text style={styles.avatarText}>{initials(profile?.full_name)}</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <Pressable onPress={() => navigation.navigate('AdminMore')} style={styles.tools} accessibilityLabel="Admin tools">
+            <Text style={styles.toolsText}>Tools</Text>
+            {attention > 0 && <View style={styles.toolsBadge}><Text style={styles.toolsBadgeText}>{attention}</Text></View>}
+          </Pressable>
+          <NotificationBell navigation={navigation} />
+          <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
+            <Text style={styles.avatarText}>{initials(profile?.full_name)}</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <Input placeholder="Search title, customer, area, PM, MT-…" value={search} onChangeText={setSearch} autoCapitalize="none" style={{ marginBottom: spacing.sm }} />
+      <View style={styles.cats}>
+        <Chip label="All" selected={category === 'all'} onPress={() => setCategory('all')} />
+        {CATEGORIES.map((c) => <Chip key={c.id} label={`${c.emoji} ${c.label}`} selected={category === c.id} onPress={() => setCategory(c.id)} />)}
       </View>
 
       <View style={styles.tabs}>
@@ -67,7 +109,7 @@ export default function AdminHomeScreen({ navigation }) {
 
       <View style={{ gap: spacing.sm }}>
         {shown.map((t) => <TaskRow key={t.id} t={t} onPress={() => navigation.navigate('AdminTask', { taskId: t.id })} />)}
-        {!shown.length && <Text style={styles.empty}>{current.empty}</Text>}
+        {!shown.length && <Text style={styles.empty}>{q || category !== 'all' ? 'No tasks match that search.' : current.empty}</Text>}
       </View>
     </ScrollView>
   );
@@ -76,6 +118,7 @@ export default function AdminHomeScreen({ navigation }) {
 function TaskRow({ t, onPress }) {
   const meta = STATUS_META[t.status];
   const when = t.status === 'completed' ? `done ${timeAgo(t.completedAt)}` : `posted ${timeAgo(t.createdAt)}`;
+  const waited = t.status === 'matched' && t.assignedAt ? Math.round((Date.now() - new Date(t.assignedAt).getTime()) / 60000) : 0;
   return (
     <Pressable onPress={onPress}>
       <Card style={{ gap: 6 }}>
@@ -88,7 +131,7 @@ function TaskRow({ t, onPress }) {
         </Text>
         <View style={styles.rowBottom}>
           <Badge label={meta.adminLabel} tone={meta.tone} />
-          {!!t.worker && <Text style={styles.meta} numberOfLines={1}>→ {t.worker.name}</Text>}
+          {!!t.worker && <Text style={styles.meta} numberOfLines={1}>→ {t.worker.name}{waited >= 5 ? ` · waiting ${waited} min` : ''}</Text>}
           <Text style={[styles.meta, { marginLeft: 'auto' }]}>{when}</Text>
         </View>
       </Card>
@@ -102,6 +145,11 @@ const styles = StyleSheet.create({
   name: { fontWeight: '800', fontSize: 17, color: colors.text },
   avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.accentLight, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontWeight: '800', color: colors.accentDark },
+  tools: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, height: 42, borderRadius: 21, backgroundColor: colors.accent },
+  toolsText: { color: colors.accentText, fontWeight: '800', fontSize: 13.5 },
+  toolsBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, backgroundColor: colors.brass, alignItems: 'center', justifyContent: 'center' },
+  toolsBadgeText: { color: colors.accentDark, fontSize: 11.5, fontWeight: '800' },
+  cats: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.md },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: spacing.lg, flexWrap: 'wrap' },
   tab: {
     flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8,

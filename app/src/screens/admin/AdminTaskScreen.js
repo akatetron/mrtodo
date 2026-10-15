@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../../theme';
 import { Card, Badge, Button, FieldLabel, Input, ErrorText, StatusTracker } from '../../components/UI';
+import TaskPhotos from '../../components/TaskPhotos';
 import {
   useTasks, getTask, catMeta, STATUS_META, shortId, initials, formatRating, timeAgo, visitsDone, runningTotal,
   PM_SHARE, assignTask, cancelTask, adminCompleteTask, listShortlist, taskHistory, catMeta as cat,
@@ -22,6 +23,9 @@ const ACTION_LABEL = {
   'task.completed_by_admin': 'Completed by admin',
   'task.cancelled': 'Cancelled',
   'task.rated': 'Rated',
+  'task.offer_expired': 'Offer lapsed with no answer',
+  'task.reported': 'Problem reported',
+  'report.resolved': 'Report resolved',
 };
 
 export default function AdminTaskScreen({ route }) {
@@ -77,6 +81,8 @@ export default function AdminTaskScreen({ route }) {
           </Text>
         </Card>
       )}
+
+      <TaskPhotos taskId={t.id} canAdd={false} hideIfEmpty />
 
       {canAssign && <Shortlist t={t} />}
       {['assigned', 'in_progress'].includes(t.status) && <CompleteWithoutCode t={t} />}
