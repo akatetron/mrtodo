@@ -1,43 +1,18 @@
-# Mr. Todo
+# Mr. Todo — Snack branch
 
-A marketplace where people ask for a **Personal Manager** to get a task done —
-fix a tap, deep-clean a flat, accompany a parent to the bank — and where people
-can sign up to **become** a Personal Manager. Every PM is ID-checked and approved
-by the Mr. Todo team, and the team matches each task to the right PM.
+This branch exists only so the app can be imported into
+[Expo Snack](https://snack.expo.dev), which runs it on an iPhone simulator in
+the browser. Import it with:
 
-| Folder | What it is | Who uses it |
-| --- | --- | --- |
-| [`app/`](app/README.md) | Expo / React Native app — **iOS, Android and web** from one codebase | Customers and Personal Managers |
-| [`admin/`](admin/README.md) | Admin dashboard website (Vite + React) | The Mr. Todo team |
-| [`supabase/`](supabase/schema.sql) | Database, security rules and task actions (Supabase / Postgres) | Both apps |
-| [`docs/`](docs) | Business plan, brand colours, task-journey walkthrough | Everyone |
+```
+https://github.com/akatetron/mrtodo/tree/snack/app
+```
 
-## How one task flows
+It is a copy of the `claude/beautiful-curie-16zpda` branch with the files
+Snack's importer rejects taken out: all images (app icon, splash, favicon),
+the PDFs and Word document in `docs/`, the lockfile, and `start.bat`.
+Those are only needed for real App Store / Play Store builds, not for the
+simulator.
 
-1. **Customer** posts a task in the app (what, where, when, price).
-2. **Admin** opens it in the dashboard's task queue, picks from a ranked shortlist
-   of approved PMs and assigns it.
-3. **PM** gets the offer in their app and accepts (or declines — it goes back to
-   the queue), then taps Start on site.
-4. When the job is done the customer reads out their **4-digit completion code**;
-   the PM enters it and the task closes. Both rate each other.
-
-Every step updates live on all three screens and is recorded in the audit log.
-
-## Becoming a Personal Manager
-
-Sign up in the app as a Personal Manager → fill in skills, service area and
-experience → upload a government ID (and any certificates) → submit. An admin
-approves, asks for more information, or rejects from the dashboard's
-Applications page; the applicant's app updates on its own.
-
-## Getting started
-
-1. Set up the database: [`app/SETUP_BACKEND.md`](app/SETUP_BACKEND.md)
-   (run `supabase/schema.sql` in your Supabase project — safe to re-run).
-2. Run the app: `cd app && npm install && npm start` (scan the QR code with
-   Expo Go, or press `w` for the web version).
-3. Run the admin dashboard: `cd admin && npm install && npm run dev`.
-
-Database tests (plain Postgres 16, no Supabase needed):
-`PGHOST=... PGUSER=postgres supabase/tests/run.sh`
+**Do your actual work on `claude/beautiful-curie-16zpda`** — this branch is a
+throwaway mirror and does not update on its own.

@@ -4,12 +4,10 @@
     "slug": "mr-todo",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
+      "backgroundColor": "#FFFFFF",
+      "resizeMode": "contain"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -22,15 +20,11 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#123B3F"
-      },
-      "package": "com.mrtodo.app"
+      "package": "com.mrtodo.app",
+      "backgroundColor": "#123B3F"
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/favicon.png",
       "name": "Mr. Todo",
       "themeColor": "#123B3F"
     }
