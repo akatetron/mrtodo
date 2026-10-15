@@ -14,5 +14,10 @@ the PDFs and Word document in `docs/`, the lockfile, and `start.bat`.
 Those are only needed for real App Store / Play Store builds, not for the
 simulator.
 
+This branch is also pinned to **Expo SDK 54**, because that is what the Snack
+runtime uses. The real app targets SDK 57 — the current version, and the one
+the App Store's Expo Go runs — so keep that difference in mind: this branch is
+for previewing screens in a browser simulator, nothing else.
+
 **Do your actual work on `claude/beautiful-curie-16zpda`** — this branch is a
 throwaway mirror and does not update on its own.
