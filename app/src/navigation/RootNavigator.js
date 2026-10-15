@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, Pressable, Text, StyleSheet, ActivityIndicator } from 'react-native';
@@ -82,6 +82,11 @@ export default function RootNavigator() {
   const { loading, user, profile } = useAuth();
   const [previewRole, setPreviewRole] = useState(null); // lets an admin peek at either view
 
+  // The "view as" choice belongs to one sign-in. Without this it outlived the
+  // session, so signing in as a customer after an admin picked "PM view" showed
+  // the Personal Manager app.
+  useEffect(() => { setPreviewRole(null); }, [user?.id]);
+
   if (loading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
@@ -116,7 +121,8 @@ export default function RootNavigator() {
     );
   }
 
-  const role = previewRole || profile.role;
+  // Only admins can view as another role; everyone else gets exactly their own.
+  const role = profile.role === 'admin' ? (previewRole || 'admin') : profile.role;
 
   return (
     <NavigationContainer>
