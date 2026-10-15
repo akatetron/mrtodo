@@ -10,6 +10,7 @@ import { Card, Button, FieldLabel, Badge, Input, ErrorText } from '../components
 import {
   CATEGORIES, catMeta, listMyDocuments, uploadDocument, removeDocument, submitApplication,
 } from '../data/store';
+import { isValidDate, expiryText } from '../data/extras';
 import { useAuth } from '../lib/AuthContext';
 
 const DOC_TYPES = [
@@ -65,6 +66,7 @@ function ApplicationForm({ profile, onSubmitted, onSignOut }) {
   const [serviceArea, setServiceArea] = useState(profile.service_area || '');
   const [docs, setDocs] = useState([]);
   const [uploading, setUploading] = useState(null);
+  const [expiry, setExpiry] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -83,9 +85,12 @@ function ApplicationForm({ profile, onSubmitted, onSignOut }) {
     if (res.canceled || !res.assets?.length) return;
     const file = res.assets[0];
     if (file.size && file.size > MAX_FILE_BYTES) { setError('That file is over 10 MB — please pick a smaller one.'); return; }
+    const expires = docType === 'qualification' ? expiry.trim() : '';
+    if (expires && !isValidDate(expires)) { setError('Write the expiry date like 2027-03-31 (year-month-day), or leave it empty.'); return; }
     setUploading(docType);
     try {
-      await uploadDocument(profile.id, docType, file.name, file);
+      await uploadDocument(profile.id, docType, file.name, file, expires || undefined);
+      if (expires) setExpiry('');
       await loadDocs();
     } catch (e) {
       setError(e.message);
@@ -185,10 +190,13 @@ function ApplicationForm({ profile, onSubmitted, onSignOut }) {
               <Text style={styles.hint}>{dt.hint}</Text>
               {mine.map((d) => (
                 <View key={d.id} style={styles.docRow}>
-                  <Text style={{ flex: 1, color: colors.text, fontSize: 13 }} numberOfLines={1}>📄 {d.label}</Text>
+                  <Text style={{ flex: 1, color: colors.text, fontSize: 13 }} numberOfLines={1}>📄 {d.label}{d.expires_on ? ` · ${expiryText(d)}` : ''}</Text>
                   <Pressable onPress={() => remove(d)} hitSlop={8}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>Remove</Text></Pressable>
                 </View>
               ))}
+              {dt.id === 'qualification' && (
+                <Input value={expiry} onChangeText={setExpiry} placeholder="Expiry date, if it has one (2027-03-31)" autoCapitalize="none" />
+              )}
               <Button
                 label={uploading === dt.id ? 'Uploading…' : mine.length ? '+ Add another' : '⬆ Upload'}
                 variant="ghost" size="sm" disabled={!!uploading} onPress={() => pick(dt.id)}

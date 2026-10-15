@@ -5,12 +5,12 @@
 -- accounts in place lets anyone who finds them sign in — including as an
 -- admin, who can read every task and every uploaded ID document.
 --
--- This removes the three demo sign-ins, their profiles (via cascade) and the
+-- This removes the four demo sign-ins, their profiles (via cascade) and the
 -- sample tasks that belong to them. Nothing else is touched.
 
 do $$
 declare
-  v_emails text[] := array['priya@example.com', 'rakesh@example.com', 'admin@example.com'];
+  v_emails text[] := array['priya@example.com', 'rakesh@example.com', 'admin@example.com', 'support@example.com'];
   v_removed int;
 begin
   delete from tasks
@@ -25,4 +25,4 @@ end $$;
 
 -- Should come back empty.
 select email, role from profiles where email in
-  ('priya@example.com', 'rakesh@example.com', 'admin@example.com');
+  ('priya@example.com', 'rakesh@example.com', 'admin@example.com', 'support@example.com');

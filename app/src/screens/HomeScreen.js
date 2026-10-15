@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { Card, Button, FieldLabel, Badge, ErrorText } from '../components/UI';
 import { CATEGORIES, TEMPLATES, createTask, myTasks, useTasks, STATUS_META, catMeta, initials } from '../data/store';
 import { useAuth } from '../lib/AuthContext';
+import NotificationBell from '../components/NotificationBell';
 
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen({ navigation, route }) {
   useTasks();
   const { user, profile } = useAuth();
   const [title, setTitle] = useState('');
@@ -25,6 +26,20 @@ export default function HomeScreen({ navigation }) {
   const [busy, setBusy] = useState(false);
 
   const mine = myTasks(user?.id);
+  // Places this person has used before, newest first, so they are one tap away.
+  const recentPlaces = [...new Set(mine.map((t) => t.location).filter(Boolean))].slice(0, 4);
+
+  // "Book again" on a finished task sends its details here to start a new one.
+  const prefill = route?.params?.prefill;
+  useEffect(() => {
+    if (!prefill) return;
+    setTitle(prefill.title || ''); setDesc(prefill.description || ''); setCategory(prefill.category || CATEGORIES[0].id);
+    setTaskType(prefill.taskType || 'one-time'); setLocation(prefill.location || '');
+    setCost(prefill.estCost ? String(prefill.estCost) : ''); setRate(prefill.ratePerDay ? String(prefill.ratePerDay) : '');
+    setForWhom(prefill.forWhom || 'self'); setRecipientName(prefill.recipientName || '');
+    setRecipientRelation(prefill.recipientRelation || ''); setRecipientPhone(prefill.recipientPhone || '');
+    setWhen(''); setSelectedTemplate(null); setError('');
+  }, [route?.params?.prefillKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyTemplate(t, i) {
     setSelectedTemplate(i);
@@ -70,9 +85,12 @@ export default function HomeScreen({ navigation }) {
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
       <View style={styles.topRow}>
         <Text style={styles.hello}>Hi {(profile?.full_name || '').split(' ')[0] || 'there'} 👋</Text>
-        <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
-          <Text style={styles.avatarText}>{initials(profile?.full_name)}</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <NotificationBell navigation={navigation} />
+          <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
+            <Text style={styles.avatarText}>{initials(profile?.full_name)}</Text>
+          </Pressable>
+        </View>
       </View>
       <Badge label="✓ Every Personal Manager is ID-verified" tone="accent" style={{ marginBottom: 14 }} />
       <Text style={styles.h1}>
@@ -159,6 +177,15 @@ export default function HomeScreen({ navigation }) {
         <View>
           <FieldLabel>📍 Where does the task need to be done?</FieldLabel>
           <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="Flat / building, area — e.g. Flat 4B, Kandivali West" value={location} onChangeText={setLocation} />
+          {recentPlaces.length > 0 && (
+            <View style={[styles.chipRow, { marginTop: 8 }]}>
+              {recentPlaces.map((place) => (
+                <Pressable key={place} onPress={() => setLocation(place)} style={[styles.chip, location === place && { borderColor: colors.accent, backgroundColor: colors.accentLight }]}>
+                  <Text style={styles.chipText} numberOfLines={1}>📍 {place}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
 
         <View>

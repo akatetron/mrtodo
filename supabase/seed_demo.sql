@@ -2,7 +2,9 @@
 --
 --   Customer          priya@example.com    demo1234
 --   Personal Manager  rakesh@example.com   demo1234   (already approved)
---   Admin             admin@example.com    demo1234
+--   Admin (super)     admin@example.com    demo1234   (can do everything)
+--   Admin (support)   support@example.com  demo1234   (cannot approve PMs, see ID
+--                                                     documents, handle money or broadcast)
 --
 -- Run this AFTER schema.sql, in your Supabase project's SQL Editor
 -- (Project → SQL Editor → New query → paste → Run). It is safe to run again:
@@ -23,8 +25,9 @@ declare
   v_customer uuid;
   v_worker   uuid;
   v_admin    uuid;
+  v_support  uuid;
   v_has_provider_id boolean;
-  v_emails text[] := array['priya@example.com', 'rakesh@example.com', 'admin@example.com'];
+  v_emails text[] := array['priya@example.com', 'rakesh@example.com', 'admin@example.com', 'support@example.com'];
 begin
   -- pgcrypto (crypt/gen_salt) lives in the "extensions" schema on Supabase and
   -- in "public" on a plain Postgres; this makes it resolve on both.
@@ -60,11 +63,16 @@ begin
     ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
      'admin@example.com', crypt('demo1234', gen_salt('bf')), now(),
      '{"provider":"email","providers":["email"]}',
-     '{"full_name":"Mr. Todo Admin","role":"customer","phone":"98200 00000"}', now(), now(), '', '', '', '', '', '', '', '');
+     '{"full_name":"Mr. Todo Admin","role":"customer","phone":"98200 00000"}', now(), now(), '', '', '', '', '', '', '', ''),
+    ('00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
+     'support@example.com', crypt('demo1234', gen_salt('bf')), now(),
+     '{"provider":"email","providers":["email"]}',
+     '{"full_name":"Sam Support","role":"customer","phone":"98200 00001"}', now(), now(), '', '', '', '', '', '', '', '');
 
   select id into v_customer from auth.users where email = 'priya@example.com';
   select id into v_worker   from auth.users where email = 'rakesh@example.com';
   select id into v_admin    from auth.users where email = 'admin@example.com';
+  select id into v_support  from auth.users where email = 'support@example.com';
 
   -- 3. Identity rows -----------------------------------------------------------
   -- Supabase wants one per sign-in method. Older projects have no provider_id
@@ -106,7 +114,8 @@ begin
       applied_at = now() - interval '9 days', reviewed_at = now() - interval '8 days'
    where id = v_worker;
 
-  update profiles set role = 'admin' where id = v_admin;
+  update profiles set role = 'admin' where id = v_admin;                              -- no level set = super admin
+  update profiles set role = 'admin', admin_level = 'support' where id = v_support;
 
   -- 5. Two sample tasks ----------------------------------------------------------
   -- One still sitting in the admin queue.
@@ -137,10 +146,10 @@ end $$;
 -- Rakesh when a job is done.
 select p.email,
        p.role,
-       case when p.role = 'worker' then p.worker_status else '—' end as verification,
+       case when p.role = 'worker' then p.worker_status when p.role = 'admin' then coalesce(p.admin_level, 'super') else '—' end as verification,
        'demo1234' as password
   from profiles p
- where p.email in ('priya@example.com', 'rakesh@example.com', 'admin@example.com')
+ where p.email in ('priya@example.com', 'rakesh@example.com', 'admin@example.com', 'support@example.com')
  order by p.role, p.email;
 
 select t.title, t.status, o.code as completion_code

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { Card, Badge, Button, FieldLabel, ErrorText, Input, Stars } from '../components/UI';
+import TaskPhotos from '../components/TaskPhotos';
 import {
   useTasks, getTask, catMeta, acceptTask, declineTask, startTask, logVisit, completeWithOtp, rateTask,
   visitsDone, STATUS_META, PM_SHARE, formatRating, initials,
@@ -99,6 +100,12 @@ export default function WorkerJobScreen({ route, navigation }) {
         </Card>
       )}
 
+      {['assigned', 'in_progress', 'completed'].includes(t.status) && (
+        <View style={{ marginBottom: spacing.md }}>
+          <TaskPhotos taskId={t.id} canAdd={['assigned', 'in_progress'].includes(t.status)} hideIfEmpty />
+        </View>
+      )}
+
       {t.status === 'in_progress' && <FinishTask t={t} />}
 
       {t.status === 'matched' && (
@@ -126,6 +133,10 @@ export default function WorkerJobScreen({ route, navigation }) {
       <ErrorText>{error}</ErrorText>
 
       {t.status === 'completed' && <RateCustomer t={t} />}
+
+      {['assigned', 'in_progress', 'completed'].includes(t.status) && (
+        <Button label="Report a problem" variant="ghost" style={{ marginTop: spacing.md }} onPress={() => navigation.navigate('ReportProblem', { taskId: t.id })} />
+      )}
     </ScrollView>
   );
 }

@@ -2,6 +2,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { resetStore } from '../data/store';
+import { startNotifications, stopNotifications } from '../data/extras';
 
 const AuthContext = createContext(null);
 
@@ -26,15 +27,17 @@ export function AuthProvider({ children }) {
   // admin approves them. Tasks cached for a previous user are thrown away.
   useEffect(() => {
     resetStore();
+    stopNotifications();
     setProfile(null);
     if (!userId) return undefined;
     refreshProfile();
+    startNotifications(userId);
     const channel = supabase
       .channel(`profile-${userId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
         (payload) => setProfile(payload.new))
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { supabase.removeChannel(channel); stopNotifications(); };
   }, [userId, refreshProfile]);
 
   async function signUpWithPassword({ email, password, fullName, phone, role }) {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { Card, Badge, Button, StatusTracker, FieldLabel, Stars, Input, ErrorText } from '../components/UI';
+import TaskPhotos from '../components/TaskPhotos';
 import {
   useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
 } from '../data/store';
@@ -13,7 +14,7 @@ const STATUS_COPY = {
   in_progress: 'Your Personal Manager is working on it.',
 };
 
-export default function TrackTaskScreen({ route }) {
+export default function TrackTaskScreen({ route, navigation }) {
   useTasks(); // subscribe so this screen re-renders when admin/PM actions change the task
   const { taskId } = route.params;
   const t = getTask(taskId);
@@ -131,8 +132,32 @@ export default function TrackTaskScreen({ route }) {
         </Card>
       )}
 
+      {['assigned', 'in_progress', 'completed'].includes(t.status) && (
+        <View style={{ marginBottom: spacing.lg }}><TaskPhotos taskId={t.id} canAdd={false} hideIfEmpty /></View>
+      )}
+
       {t.status === 'completed' && <RatePm t={t} />}
       {['requested', 'matched', 'assigned'].includes(t.status) && <CancelTask t={t} />}
+
+      <View style={{ gap: spacing.sm, marginTop: spacing.lg }}>
+        {['completed', 'cancelled'].includes(t.status) && (
+          <Button
+            label="↻ Book again"
+            variant="ghost"
+            onPress={() => navigation.navigate('Home', {
+              prefillKey: Date.now(),
+              prefill: {
+                title: t.title, description: t.description, category: t.category, taskType: t.taskType,
+                location: t.location, estCost: t.estCost, ratePerDay: t.ratePerDay, forWhom: t.forWhom,
+                recipientName: t.recipientName, recipientRelation: t.recipientRelation, recipientPhone: t.recipientPhone,
+              },
+            })}
+          />
+        )}
+        {['assigned', 'in_progress', 'completed'].includes(t.status) && (
+          <Button label="Report a problem" variant="ghost" onPress={() => navigation.navigate('ReportProblem', { taskId: t.id })} />
+        )}
+      </View>
     </ScrollView>
   );
 }
