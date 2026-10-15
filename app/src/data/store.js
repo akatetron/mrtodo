@@ -25,14 +25,15 @@ export const TEMPLATES = [
   { emoji: '💊', label: 'Medicine or grocery run', category: 'care', title: 'Pick up medicines / groceries', desc: 'A short, one-time errand to collect medicines or groceries.', taskType: 'one-time' },
 ];
 
-// `label` is what the customer sees, `pmLabel` what the Personal Manager sees.
+// `label` is what the customer sees, `pmLabel` what the Personal Manager sees,
+// `adminLabel` what an admin sees.
 export const STATUS_META = {
-  requested: { label: 'Requested', pmLabel: 'Requested', tone: 'neutral' },
-  matched: { label: 'Matched', pmLabel: 'New offer', tone: 'brass' },
-  assigned: { label: 'Assigned', pmLabel: 'Accepted', tone: 'accent' },
-  in_progress: { label: 'In progress', pmLabel: 'In progress', tone: 'accent' },
-  completed: { label: 'Completed', pmLabel: 'Completed', tone: 'success' },
-  cancelled: { label: 'Cancelled', pmLabel: 'Cancelled', tone: 'danger' },
+  requested: { label: 'Requested', pmLabel: 'Requested', adminLabel: 'Needs a PM', tone: 'neutral' },
+  matched: { label: 'Matched', pmLabel: 'New offer', adminLabel: 'Offered — awaiting PM', tone: 'brass' },
+  assigned: { label: 'Assigned', pmLabel: 'Accepted', adminLabel: 'Accepted', tone: 'accent' },
+  in_progress: { label: 'In progress', pmLabel: 'In progress', adminLabel: 'In progress', tone: 'accent' },
+  completed: { label: 'Completed', pmLabel: 'Completed', adminLabel: 'Completed', tone: 'success' },
+  cancelled: { label: 'Cancelled', pmLabel: 'Cancelled', adminLabel: 'Cancelled', tone: 'danger' },
 };
 export const STAGES = ['requested', 'matched', 'assigned', 'in_progress', 'completed'];
 
@@ -208,6 +209,51 @@ export const rateTask = (taskId, rating, review) => rpc('rate_task', { p_task: t
 
 // Resolves to 'ok', 'wrong' or 'locked'.
 export const completeWithOtp = (taskId, code) => rpc('complete_task', { p_task: taskId, p_code: code });
+
+// ---- admin actions (the database refuses all of these for non-admins) ------------
+
+export const assignTask = (taskId, workerId) => rpc('assign_task', { p_task: taskId, p_worker: workerId });
+export const adminCompleteTask = (taskId, note) => rpc('admin_complete_task', { p_task: taskId, p_note: note });
+
+// Approved Personal Managers ranked best-first for this task.
+export async function listShortlist(taskId) {
+  const { data, error } = await supabase.rpc('shortlist_workers', { p_task: taskId });
+  if (error) throw new Error(error.message);
+  return (data || []).map((w) => ({
+    id: w.id,
+    name: w.full_name,
+    initials: initials(w.full_name),
+    rating: w.rating == null ? null : Number(w.rating),
+    ratingCount: w.rating_count || 0,
+    jobsDone: w.jobs_done || 0,
+    serviceArea: w.service_area,
+    online: w.online,
+    categoryMatch: w.category_match,
+    areaMatch: w.area_match,
+    declined: w.declined,
+    activeJobs: w.active_jobs || 0,
+  }));
+}
+
+// Everything that has happened to a task, oldest first.
+export async function taskHistory(taskId) {
+  const { data, error } = await supabase
+    .from('audit_log')
+    .select('id, action, details, created_at, actor:actor_id(full_name)')
+    .eq('entity_id', taskId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export function timeAgo(ts) {
+  if (!ts) return '';
+  const mins = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60 * 24) return `${Math.round(mins / 60)} h ago`;
+  return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
 
 // ---- Personal Manager application -------------------------------------------------
 
