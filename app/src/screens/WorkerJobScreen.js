@@ -4,7 +4,7 @@ import { colors, spacing, radius } from '../theme';
 import { Card, Badge, Button, FieldLabel, ErrorText, Input, Stars } from '../components/UI';
 import TaskPhotos from '../components/TaskPhotos';
 import {
-  useTasks, getTask, catMeta, acceptTask, declineTask, startTask, logVisit, completeWithOtp, rateTask,
+  useTasks, getTask, catMeta, acceptTask, declineTask, startTask, logVisit, completeWithOtp, rateTask, COMPLETION_MESSAGES,
   visitsDone, STATUS_META, PM_SHARE, formatRating, initials,
 } from '../data/store';
 
@@ -66,7 +66,6 @@ export default function WorkerJobScreen({ route, navigation }) {
               tone={c.rating != null && c.rating < 4 ? 'danger' : 'neutral'}
               style={{ marginTop: 4 }}
             />
-            {revealContact && !!c.phone && <Text style={styles.phone}>📞 {c.phone}</Text>}
           </View>
         </Card>
       )}
@@ -76,7 +75,6 @@ export default function WorkerJobScreen({ route, navigation }) {
           <Text style={{ fontSize: 13, color: colors.muted, lineHeight: 19 }}>
             <Text style={{ fontWeight: '700', color: colors.text }}>Meeting on arrival: </Text>
             {t.recipientName}{t.recipientRelation ? ` (${t.recipientRelation})` : ''}
-            {revealContact ? `, ${t.recipientPhone || 'no phone on file'}` : ''}
           </Text>
         </Card>
       )}
@@ -167,9 +165,8 @@ function FinishTask({ t }) {
     setError(''); setBusy(true);
     try {
       const result = await completeWithOtp(t.id, otp.trim());
-      if (result === 'wrong') setError('Incorrect code — ask the customer for the completion code shown in their app.');
-      if (result === 'locked') setError('Too many incorrect codes. The task is locked — contact support to close it.');
-      if (result === 'ok') setOtp('');
+      if (result === 'ok' || result === true) setOtp('');
+      else setError(COMPLETION_MESSAGES[result] || 'Could not complete the task. Try again.');
     } catch (e) {
       setError(e.message);
     } finally {

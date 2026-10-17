@@ -28,7 +28,7 @@ export default function AdminMoreScreen({ navigation }) {
     try {
       const name = await exportCsv('tasks', tasks.map((t) => ({
         id: shortId(t.id), title: t.title, category: catMeta(t.category).label, type: t.taskType, status: t.status,
-        customer: t.customer?.name || '', customer_phone: t.customer?.phone || '', personal_manager: t.worker?.name || '',
+        customer: t.customer?.name || '', personal_manager: t.worker?.name || '',
         location: t.location, scheduled: t.scheduledFor || '', value_inr: runningTotal(t),
         posted: t.createdAt, completed: t.completedAt || '', customer_rating: t.customerRatingOfWorker ?? '',
       })));

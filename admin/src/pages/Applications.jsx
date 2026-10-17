@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLive, q } from '../lib/useLive';
-import { PM_STATUS, catMeta, when } from '../lib/constants';
-import { Badge, Avatar, ErrorBox, useAction } from '../components/ui';
+import { PROFILE_COLUMNS, PM_STATUS, catMeta, when } from '../lib/constants';
+import { Contact, Badge, Avatar, ErrorBox, useAction } from '../components/ui';
 
 const FILTERS = [
   { id: 'pending', label: 'Pending review', statuses: ['pending'] },
@@ -15,7 +15,7 @@ export default function Applications() {
   const [filter, setFilter] = useState('pending');
   const [selectedId, setSelectedId] = useState(null);
   const { data: people, error } = useLive(
-    () => q(supabase.from('profiles').select('*').eq('role', 'worker')
+    () => q(supabase.from('profiles').select(PROFILE_COLUMNS).eq('role', 'worker')
       .in('worker_status', ['pending', 'more_info', 'draft', 'rejected'])
       .order('applied_at', { ascending: true, nullsFirst: false })),
     ['profiles'],
@@ -47,7 +47,7 @@ export default function Applications() {
             <tbody>
               {list.map((p) => (
                 <tr key={p.id} className={`clickable ${p.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(p.id)}>
-                  <td><div className="t-title">{p.full_name}</div><div className="faint small">{p.email}</div></td>
+                  <td><div className="t-title">{p.full_name}</div></td>
                   <td>{(p.categories || []).map((c) => catMeta(c).emoji).join(' ') || '—'}</td>
                   <td>{p.service_area || '—'}</td>
                   <td>{p.experience_years != null ? `${p.experience_years} yrs` : '—'}</td>
@@ -80,7 +80,7 @@ function Applicant({ p }) {
           <Avatar name={p.full_name} />
           <div style={{ flex: 1 }}>
             <h2>{p.full_name}</h2>
-            <div className="small muted">{[p.phone, p.email].filter(Boolean).join(' · ')}</div>
+            <Contact id={p.id} />
           </div>
           <Badge tone={st.tone}>{st.label}</Badge>
         </div>

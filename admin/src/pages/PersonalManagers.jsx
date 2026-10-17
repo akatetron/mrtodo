@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLive, q } from '../lib/useLive';
-import { PM_STATUS, CATEGORIES, catMeta, rating, when } from '../lib/constants';
+import { PROFILE_COLUMNS, PM_STATUS, CATEGORIES, catMeta, rating, when } from '../lib/constants';
 import { Badge, ErrorBox, useAction } from '../components/ui';
 
 export default function PersonalManagers() {
@@ -9,7 +9,7 @@ export default function PersonalManagers() {
   const [search, setSearch] = useState('');
   const { data, error } = useLive(async () => {
     const [pms, active] = await Promise.all([
-      q(supabase.from('profiles').select('*').eq('role', 'worker').in('worker_status', ['approved', 'suspended']).order('full_name')),
+      q(supabase.from('profiles').select(PROFILE_COLUMNS).eq('role', 'worker').in('worker_status', ['approved', 'suspended']).order('full_name')),
       q(supabase.from('tasks').select('assigned_worker_id').in('status', ['matched', 'assigned', 'in_progress'])),
     ]);
     const load = {};
@@ -21,7 +21,7 @@ export default function PersonalManagers() {
     const s = search.trim().toLowerCase();
     return (data || [])
       .filter((p) => cat === 'all' || (p.categories || []).includes(cat))
-      .filter((p) => !s || [p.full_name, p.service_area, p.phone, p.email].some((v) => v && v.toLowerCase().includes(s)));
+      .filter((p) => !s || [p.full_name, p.service_area].some((v) => v && v.toLowerCase().includes(s)));
   }, [data, cat, search]);
 
   return (
@@ -31,7 +31,7 @@ export default function PersonalManagers() {
           <h1>Personal Managers</h1>
           <p>{data ? `${data.filter((p) => p.worker_status === 'approved').length} approved · ${data.filter((p) => p.worker_status === 'approved' && p.online).length} available now` : ' '}</p>
         </div>
-        <input className="field" style={{ maxWidth: 260 }} placeholder="Search name, area, phone…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="field" style={{ maxWidth: 260 }} placeholder="Search name or area…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
       <div className="tabs">
         <button className={`tab ${cat === 'all' ? 'active' : ''}`} onClick={() => setCat('all')}>All skills</button>
@@ -66,7 +66,7 @@ function PmRow({ p }) {
   }
   return (
     <tr>
-      <td><div className="t-title">{p.full_name}</div><div className="faint small">{p.phone} · since {when(p.reviewed_at || p.created_at)}</div></td>
+      <td><div className="t-title">{p.full_name}</div><div className="faint small">since {when(p.reviewed_at || p.created_at)}</div></td>
       <td>{(p.categories || []).map((c) => <span key={c} title={catMeta(c).label}>{catMeta(c).emoji} </span>)}</td>
       <td>{p.service_area || '—'}</td>
       <td>{rating(p.rating, p.rating_count)}</td>

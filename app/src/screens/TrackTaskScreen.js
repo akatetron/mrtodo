@@ -5,6 +5,7 @@ import { Card, Badge, Button, StatusTracker, FieldLabel, Stars, Input, ErrorText
 import TaskPhotos from '../components/TaskPhotos';
 import {
   useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
+  priceSummary, confirmTaskPrice, issueCompletionCode,
 } from '../data/store';
 
 const STATUS_COPY = {
@@ -62,11 +63,13 @@ export default function TrackTaskScreen({ route, navigation }) {
             <Text style={styles.metaVal}>{t.location}</Text>
           </View>
           <View>
-            <FieldLabel>{t.taskType === 'ongoing' ? 'Price per day' : 'Est. cost'}</FieldLabel>
-            <Text style={styles.metaVal}>{t.taskType === 'ongoing' ? `₹${t.ratePerDay || 0}/day` : t.estCost ? `₹${t.estCost}` : '—'}</Text>
+            <FieldLabel>Price</FieldLabel>
+            <Text style={styles.metaVal}>{priceSummary(t).label}</Text>
           </View>
         </View>
       </Card>
+
+      <PriceCard t={t} />
 
       {t.taskType === 'ongoing' && t.status !== 'requested' && (
         <Card style={{ marginBottom: spacing.lg }}>
@@ -100,19 +103,7 @@ export default function TrackTaskScreen({ route, navigation }) {
         </Card>
       )}
 
-      {(t.status === 'assigned' || t.status === 'in_progress') && t.otp && (
-        <Card style={{ marginBottom: spacing.lg, backgroundColor: colors.accentLight, borderColor: 'transparent' }}>
-          <FieldLabel>
-            <Text style={{ color: colors.accentDark }}>Completion code</Text>
-          </FieldLabel>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <Text style={{ color: colors.accentDark, fontSize: 12.5, flex: 1, lineHeight: 18 }}>
-              Share this code with your Personal Manager only once {t.taskType === 'ongoing' ? 'the final visit is' : 'the task is'} actually done.
-            </Text>
-            <Text style={styles.otp}>{t.otp}</Text>
-          </View>
-        </Card>
-      )}
+      {(t.status === 'assigned' || t.status === 'in_progress') && <CompletionCode t={t} />}
 
       {showPm && (
         <Card style={{ marginBottom: spacing.lg }}>
@@ -126,7 +117,6 @@ export default function TrackTaskScreen({ route, navigation }) {
               <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
                 {formatRating(w.rating, w.ratingCount)} · {w.jobsDone} task{w.jobsDone === 1 ? '' : 's'} done
               </Text>
-              {!!w.phone && t.status !== 'completed' && <Text style={{ color: colors.accent, fontSize: 13, marginTop: 2, fontWeight: '700' }}>📞 {w.phone}</Text>}
             </View>
           </View>
         </Card>
@@ -241,3 +231,45 @@ const styles = StyleSheet.create({
   avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.accentLight, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontWeight: '800', color: colors.accentDark, fontSize: 16 },
 });
+
+function PriceCard({ t }) {
+  const p = priceSummary(t);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (['cancelled', 'completed'].includes(t.status)) return null;
+  async function confirm() {
+    setBusy(true); setError('');
+    try { await confirmTaskPrice(t.id); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <Card style={{ marginBottom: spacing.lg, gap: spacing.sm }}>
+      <FieldLabel>Price</FieldLabel>
+      <Text style={styles.h2}>{p.label}</Text>
+      <Text style={styles.mutedSmall}>{p.detail}</Text>
+      {t.priceStatus === 'awaiting_confirmation' && <Button label="Confirm this price" onPress={confirm} disabled={busy} />}
+      <ErrorText>{error}</ErrorText>
+    </Card>
+  );
+}
+
+// The code is only returned once, when the customer asks for it. It is never stored readable.
+function CompletionCode({ t }) {
+  const [code, setCode] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function show() {
+    setBusy(true); setError('');
+    try { setCode(await issueCompletionCode(t.id)); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <Card style={{ marginBottom: spacing.lg, backgroundColor: colors.accentLight, borderColor: 'transparent', gap: spacing.sm }}>
+      <FieldLabel><Text style={{ color: colors.accentDark }}>Completion code</Text></FieldLabel>
+      <Text style={{ color: colors.accentDark, fontSize: 14, lineHeight: 20 }}>
+        Show the code to your Personal Manager only once {t.taskType === 'ongoing' ? 'the final visit is' : 'the task is'} actually done.
+      </Text>
+      {code && <Text style={styles.otp}>{code.code}</Text>}
+      <Button label={code ? 'Show a new code' : 'Show my completion code'} onPress={show} disabled={busy} />
+      <ErrorText>{error}</ErrorText>
+    </Card>
+  );
+}

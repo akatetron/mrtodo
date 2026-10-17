@@ -1,7 +1,8 @@
 // Mr. Todo — auth session + profile, available to every screen via useAuth().
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { resetStore } from '../data/store';
+import { resetStore, setStoreUser } from '../data/store';
+import { PROFILE_COLUMNS } from './errors';
 import { startNotifications, stopNotifications } from '../data/extras';
 
 const AuthContext = createContext(null);
@@ -19,7 +20,7 @@ export function AuthProvider({ children }) {
 
   const refreshProfile = useCallback(async () => {
     if (!userId) return;
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    const { data } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', userId).single();
     setProfile(data);
   }, [userId]);
 
@@ -27,6 +28,7 @@ export function AuthProvider({ children }) {
   // admin approves them. Tasks cached for a previous user are thrown away.
   useEffect(() => {
     resetStore();
+    setStoreUser(userId);
     stopNotifications();
     setProfile(null);
     if (!userId) return undefined;

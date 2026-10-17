@@ -5,6 +5,7 @@ import { View, Text, ScrollView, Image, Linking, Pressable, StyleSheet } from 'r
 import { colors, spacing, radius } from '../../theme';
 import { Card, Badge, Button, FieldLabel, Input, ErrorText } from '../../components/UI';
 import { useAuth } from '../../lib/AuthContext';
+import AdminContact from '../../components/AdminContact';
 import { catMeta, initials, timeAgo } from '../../data/store';
 import { expiryText, docExpiry } from '../../data/extras';
 import { getProfile, listWorkerDocs, reviewApplication, isSuperAdmin, useLiveQuery } from '../../data/adminData';
@@ -51,10 +52,10 @@ export default function AdminApplicantScreen({ route, navigation }) {
           <View style={styles.avatar}><Text style={styles.avatarText}>{initials(p.full_name)}</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.name}>{p.full_name}</Text>
-            <Text style={styles.meta}>{[p.phone, p.email].filter(Boolean).join(' · ') || 'No contact details'}</Text>
           </View>
           <Badge label={statusLabel} tone={statusTone} />
         </View>
+        <AdminContact personId={p.id} style={styles.meta} />
         <Info label="Can help with" value={(p.categories || []).length ? p.categories.map((c) => `${catMeta(c).emoji} ${catMeta(c).label}`).join('  ') : 'Nothing chosen'} />
         <Info label="Area" value={p.service_area || '—'} />
         <Info label="Experience" value={p.experience_years != null ? `${p.experience_years} years` : '—'} />

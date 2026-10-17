@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { isMissingFeature, UPDATE_HINT } from './extras';
+import { PROFILE_COLUMNS } from '../lib/errors';
 
 async function run(builder) {
   const { data, error } = await builder;
@@ -54,17 +55,17 @@ export function useLiveQuery(loader, tables, navigation) {
 // ---- applications & people -------------------------------------------------------------
 
 export const listApplicants = () =>
-  run(supabase.from('profiles').select('*').eq('role', 'worker')
+  run(supabase.from('profiles').select(PROFILE_COLUMNS).eq('role', 'worker')
     .in('worker_status', ['pending', 'more_info', 'draft', 'rejected'])
     .order('applied_at', { ascending: true, nullsFirst: false }));
 
-export const getProfile = (id) => run(supabase.from('profiles').select('*').eq('id', id).single());
+export const getProfile = (id) => run(supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', id).single());
 
 export const listPeople = () =>
-  run(supabase.from('profiles').select('*').in('role', ['customer', 'worker']).order('full_name'));
+  run(supabase.from('profiles').select(PROFILE_COLUMNS).in('role', ['customer', 'worker']).order('full_name'));
 
 export const listApprovedPms = () =>
-  run(supabase.from('profiles').select('*').eq('role', 'worker').eq('worker_status', 'approved'));
+  run(supabase.from('profiles').select(PROFILE_COLUMNS).eq('role', 'worker').eq('worker_status', 'approved'));
 
 export const reviewApplication = (workerId, decision, note) =>
   run(supabase.rpc('review_pm_application', { p_worker: workerId, p_decision: decision, p_note: note || null }));
@@ -94,7 +95,7 @@ export async function pmReliability() {
 
 // ---- admin team ----------------------------------------------------------------------------
 
-export const listAdmins = () => run(supabase.from('profiles').select('*').eq('role', 'admin').order('full_name'));
+export const listAdmins = () => run(supabase.from('profiles').select(PROFILE_COLUMNS).eq('role', 'admin').order('full_name'));
 export const setAdminLevel = (userId, level) => run(supabase.rpc('set_admin_level', { p_user: userId, p_level: level }));
 
 // ---- reports ------------------------------------------------------------------------------------

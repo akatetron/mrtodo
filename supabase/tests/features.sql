@@ -21,8 +21,8 @@ insert into auth.users(id,email,raw_user_meta_data) values
  ('00000000-0000-0000-0000-0000000000a2','q@x','{"full_name":"Suresh","role":"worker"}'),
  ('00000000-0000-0000-0000-0000000000ad','ad@x','{"full_name":"Admin"}'),
  ('00000000-0000-0000-0000-0000000000a5','su@x','{"full_name":"Support"}');
-update profiles set role='admin' where email='ad@x';
-update profiles set role='admin', admin_level='support' where email='su@x';
+update profiles set role='admin' where id = '00000000-0000-0000-0000-0000000000ad';
+update profiles set role='admin', admin_level='support' where id = '00000000-0000-0000-0000-0000000000a5';
 update profiles set worker_status='approved', categories=array['handyman'], service_area='Kandivali' where email in ('p@x','q@x');
 
 select chk((select count(*) from profiles where role='admin')=2, 'two admins exist');
@@ -31,6 +31,10 @@ select chk((select count(*) from profiles where role='admin')=2, 'two admins exi
 set role authenticated; set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
 insert into tasks(customer_id,title,category,location) values (auth.uid(),'Fix tap','handyman','Flat 4B, Kandivali West');
 select chk((select count(*) from notifications)=0, 'customer is not notified of own task');
+reset role;
+select id as t_fix from tasks where title='Fix tap' \gset
+update tasks set est_cost=650, price_source='admin', price_status='confirmed', price_approved_at=now() where id=:'t_fix';
+set role authenticated; set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
 select chk((select count(*) from notifications where title like 'New task%')=1, 'admin notified of new task');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';
@@ -56,8 +60,8 @@ select chk((select count(*) from pm_documents)=1, 'super admin can read ID docum
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
 select chk((select count(*) from notifications where title='New task offered to you')=1, 'PM notified of offer');
 select chk((select count(*) from notifications where title like 'New task needs%')=0, 'PM does not see admin notifications');
-select accept_task((select id from tasks limit 1));
-select start_task((select id from tasks limit 1));
+select accept_task(:'t_fix');
+select start_task(:'t_fix');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
 select chk((select count(*) from notifications where title='Your Personal Manager accepted')=1, 'customer told PM accepted');
 select chk((select count(*) from notifications where title='Work has started')=1, 'customer told work started');
@@ -71,20 +75,20 @@ select chk((select count(*) from notifications where read_at is null)=1, 'markin
 reset role; select set_config('t.id', (select id::text from tasks limit 1), false); set role authenticated;
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
 select chk(public.safe_uuid('not-a-uuid') is null, 'safe_uuid returns null for junk');
-insert into task_photos(task_id,kind,storage_path) select id,'before',id::text||'/before.jpg' from tasks;
+insert into task_photos(task_id,kind,storage_path,content_type,size_bytes) select id,'before',id::text||'/before-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg','image/jpeg',100 from tasks;
 select chk((select count(*) from task_photos)=1, 'assigned PM can add a photo while working');
-select expect_error($$insert into task_photos(task_id,kind,storage_path) select id,'after','elsewhere/after.jpg' from tasks$$, 'photo path must be inside the task folder');
-insert into storage.objects(bucket_id,name) select 'task-photos', id::text||'/before.jpg' from tasks;
+select expect_error($$insert into task_photos(task_id,kind,storage_path,content_type,size_bytes) select id,'after','elsewhere/after.jpg','image/jpeg',100 from tasks$$, 'photo path must be inside the task folder');
+insert into storage.objects(bucket_id,name) select 'task-photos', id::text||'/before-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg' from tasks;
 select chk((select count(*) from storage.objects where bucket_id='task-photos')=1, 'assigned PM can upload to storage');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
 select chk((select count(*) from task_photos)=0, 'other PM cannot see photos');
 select chk((select count(*) from storage.objects where bucket_id='task-photos')=0, 'other PM cannot see stored files');
-select expect_error($$insert into task_photos(task_id,kind,storage_path) values (current_setting('t.id')::uuid,'after',current_setting('t.id')||'/x.jpg')$$, 'other PM cannot add photos');
+select expect_error($$insert into task_photos(task_id,kind,storage_path,content_type,size_bytes) values (current_setting('t.id')::uuid,'after',current_setting('t.id')||'/after-x.jpg','image/jpeg',100)$$, 'other PM cannot add photos');
 select expect_error($$insert into storage.objects(bucket_id,name) select 'task-photos', id::text||'/x.jpg' from (select '00000000-0000-0000-0000-000000000000'::uuid id) s$$, 'other PM cannot upload to storage');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
 select chk((select count(*) from task_photos)=1, 'customer can see proof photos');
 select chk((select count(*) from storage.objects where bucket_id='task-photos')=1, 'customer can open stored files');
-select expect_error($$insert into task_photos(task_id,kind,storage_path) select id,'after',id::text||'/c.jpg' from tasks$$, 'customer cannot add photos');
+select expect_error($$insert into task_photos(task_id,kind,storage_path,content_type,size_bytes) select id,'after',id::text||'/after-c.jpg','image/jpeg',100 from tasks$$, 'customer cannot add photos');
 
 -- ===== reports
 select expect_error($$select report_task((select id from tasks limit 1),'bogus')$$, 'unknown report reason rejected');
@@ -112,7 +116,7 @@ select admin_complete_task((select id from tasks limit 1),'confirmed by phone');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
 select chk((select count(*) from notifications where title like 'Task completed%')=1, 'customer told task completed');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
-select expect_error($$insert into task_photos(task_id,kind,storage_path) select id,'after',id::text||'/late.jpg' from tasks$$, 'photos locked once completed');
+select expect_error($$insert into task_photos(task_id,kind,storage_path,content_type,size_bytes) select id,'after',id::text||'/after-late.jpg','image/jpeg',100 from tasks$$, 'photos locked once completed');
 
 -- ===== document renewal: approved PM may add a certificate, never an ID
 insert into pm_documents(doc_type,label,storage_path,expires_on) values ('qualification','Plumbing licence','00000000-0000-0000-0000-0000000000a1/lic.pdf', current_date + 20);
@@ -121,7 +125,7 @@ select expect_error($$insert into pm_documents(doc_type,storage_path) values ('i
 
 -- ===== offer time-out
 reset role;
-insert into tasks(customer_id,title,category,location) values ('00000000-0000-0000-0000-0000000000c1','Clean flat','handyman','Kandivali');
+insert into tasks(customer_id,title,category,location,est_cost,price_status,price_source) values ('00000000-0000-0000-0000-0000000000c1','Clean flat','handyman','Kandivali',500,'confirmed','admin');
 set role authenticated; set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
 select assign_task((select id from tasks where title='Clean flat'),'00000000-0000-0000-0000-0000000000a2');
 select chk(expire_stale_offers(15)=0, 'a fresh offer is not expired');
@@ -158,9 +162,9 @@ set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"
 select expect_error($$select set_admin_level('00000000-0000-0000-0000-0000000000c1','super')$$, 'cannot give a customer an admin level');
 select expect_error($$select set_admin_level('00000000-0000-0000-0000-0000000000ad','support')$$, 'cannot demote the last super admin');
 select set_admin_level('00000000-0000-0000-0000-0000000000a5','super');
-select chk((select admin_level from profiles where email='su@x')='super', 'super admin can promote');
+select chk((select admin_level from profiles where id = '00000000-0000-0000-0000-0000000000a5')='super', 'super admin can promote');
 select set_admin_level('00000000-0000-0000-0000-0000000000ad','support');
-select chk((select admin_level from profiles where email='ad@x')='support', 'a super admin can step down when another exists');
+select chk((select admin_level from profiles where id = '00000000-0000-0000-0000-0000000000ad')='support', 'a super admin can step down when another exists');
 
 -- ===== reliability stats
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a5","role":"authenticated"}';

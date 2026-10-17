@@ -29,11 +29,11 @@ export default function AdminPeopleScreen({ navigation }) {
   const s = search.trim().toLowerCase();
   const list = (people || [])
     .filter((p) => filter === 'all' || p.role === filter)
-    .filter((p) => !s || [p.full_name, p.email, p.phone, p.service_area].some((v) => v && v.toLowerCase().includes(s)));
+    .filter((p) => !s || [p.full_name, p.service_area].some((v) => v && v.toLowerCase().includes(s)));
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60, gap: spacing.sm }}>
-      <Input placeholder="Search name, email, phone, area" value={search} onChangeText={setSearch} autoCapitalize="none" />
+      <Input placeholder="Search name or area" value={search} onChangeText={setSearch} autoCapitalize="none" />
       <View style={styles.chips}>
         {FILTERS.map((f) => <Chip key={f.id} label={f.label} selected={filter === f.id} onPress={() => setFilter(f.id)} />)}
       </View>

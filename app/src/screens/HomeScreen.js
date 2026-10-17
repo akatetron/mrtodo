@@ -53,7 +53,6 @@ export default function HomeScreen({ navigation, route }) {
     setError('');
     if (!title.trim()) return setError('Tell us what you need done.');
     if (!location.trim()) return setError('Add where the task needs to be done.');
-    if (taskType === 'ongoing' && !parseInt(rate, 10)) return setError('Set a price per day for an ongoing task.');
     if (forWhom === 'other' && !recipientName.trim()) return setError("Add the name of the person you're booking for.");
     setBusy(true);
     try {
@@ -64,8 +63,6 @@ export default function HomeScreen({ navigation, route }) {
         taskType,
         scheduledFor: when.trim() || 'Flexible',
         location: location.trim(),
-        estCost: taskType === 'one-time' && cost ? parseInt(cost, 10) || null : null,
-        ratePerDay: taskType === 'ongoing' ? parseInt(rate, 10) : null,
         forWhom,
         recipientName: forWhom === 'other' ? recipientName.trim() : null,
         recipientRelation: forWhom === 'other' ? recipientRelation.trim() || null : null,
@@ -156,18 +153,10 @@ export default function HomeScreen({ navigation, route }) {
           </View>
         </View>
 
-        {taskType === 'one-time' ? (
-          <View>
-            <FieldLabel>Estimated cost (₹, optional)</FieldLabel>
-            <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. 650" keyboardType="numeric" value={cost} onChangeText={setCost} />
-          </View>
-        ) : (
-          <View>
-            <FieldLabel>Price per day (₹)</FieldLabel>
-            <TextInput placeholderTextColor={colors.faint} style={styles.input} placeholder="e.g. 400" keyboardType="numeric" value={rate} onChangeText={setRate} />
-            <Text style={styles.hint}>Charged for each day/visit your Personal Manager comes.</Text>
-          </View>
-        )}
+        <View>
+          <FieldLabel>Price</FieldLabel>
+          <Text style={styles.hint}>Our team sets the price for your task, usually within a few minutes. You confirm it before any work starts.</Text>
+        </View>
 
         <View>
           <FieldLabel>🗓 When?</FieldLabel>
