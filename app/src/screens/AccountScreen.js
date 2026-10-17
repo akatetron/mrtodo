@@ -3,7 +3,7 @@ import { View, Text, ScrollView } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { colors, spacing } from '../theme';
 import { Card, Button, FieldLabel, Input, ErrorText, Badge } from '../components/UI';
-import { updateMyProfile, formatRating, catMeta, listMyDocuments, uploadDocument } from '../data/store';
+import { myContact, updateMyProfile, formatRating, catMeta, listMyDocuments, uploadDocument } from '../data/store';
 import { docExpiry, expiryText, isValidDate } from '../data/extras';
 import { useAuth } from '../lib/AuthContext';
 
@@ -12,7 +12,8 @@ const ROLE_LABEL = { customer: 'Customer', worker: 'Personal Manager', admin: 'A
 export default function AccountScreen() {
   const { user, profile, refreshProfile, signOut } = useAuth();
   const [fullName, setFullName] = useState(profile.full_name || '');
-  const [phone, setPhone] = useState(profile.phone || '');
+  const [phone, setPhone] = useState('');
+  useEffect(() => { myContact().then((c) => setPhone(c.phone || '')); }, []);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);

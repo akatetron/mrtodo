@@ -8,7 +8,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { colors, spacing, radius } from '../theme';
 import { Card, Button, FieldLabel, Badge, Input, ErrorText } from '../components/UI';
 import {
-  CATEGORIES, catMeta, listMyDocuments, uploadDocument, removeDocument, submitApplication,
+  CATEGORIES, myContact, catMeta, listMyDocuments, uploadDocument, removeDocument, submitApplication,
 } from '../data/store';
 import { isValidDate, expiryText } from '../data/extras';
 import { useAuth } from '../lib/AuthContext';
@@ -59,7 +59,8 @@ export default function PmApplicationScreen() {
 
 function ApplicationForm({ profile, onSubmitted, onSignOut }) {
   const [fullName, setFullName] = useState(profile.full_name || '');
-  const [phone, setPhone] = useState(profile.phone || '');
+  const [phone, setPhone] = useState('');
+  useEffect(() => { myContact().then((c) => setPhone((p) => p || c.phone || '')); }, []);
   const [bio, setBio] = useState(profile.bio || '');
   const [categories, setCategories] = useState(profile.categories || []);
   const [experience, setExperience] = useState(profile.experience_years != null ? String(profile.experience_years) : '');

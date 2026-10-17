@@ -4,6 +4,7 @@ import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { colors, spacing } from '../../theme';
 import { Card, Badge, FieldLabel, ErrorText } from '../../components/UI';
 import { useAuth } from '../../lib/AuthContext';
+import AdminContact from '../../components/AdminContact';
 import { useTasks, catMeta, STATUS_META, initials, formatRating, timeAgo } from '../../data/store';
 import { expiryText, docExpiry } from '../../data/extras';
 import { getProfile, listWorkerDocs, pmReliability, useLiveQuery, isSuperAdmin } from '../../data/adminData';
@@ -45,9 +46,9 @@ export default function AdminPersonScreen({ route, navigation }) {
           <View style={{ flex: 1 }}>
             <Text style={styles.name}>{p.full_name}</Text>
             <Text style={styles.meta}>{isPm ? 'Personal Manager' : 'Customer'} · {formatRating(p.rating, p.rating_count)}</Text>
-            <Text style={styles.meta}>{[p.phone, p.email].filter(Boolean).join(' · ')}</Text>
           </View>
         </View>
+        <AdminContact personId={p.id} style={styles.meta} />
         {flags.length > 0 && <View style={styles.flags}>{flags.map((f) => <Badge key={f} label={`⚠ ${f}`} tone="danger" />)}</View>}
         {isPm && (
           <View style={{ gap: 4 }}>

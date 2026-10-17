@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useLive, q } from '../lib/useLive';
 import { TASK_STATUS, catMeta, shortId, money, when, rating, PM_SHARE } from '../lib/constants';
-import { Badge, Avatar, ErrorBox, useAction } from '../components/ui';
+import { Contact, Field, Badge, Avatar, ErrorBox, useAction } from '../components/ui';
 
 const FILTERS = [
   { id: 'queue', label: 'Needs a PM', match: (t) => t.status === 'requested' },
@@ -13,7 +13,7 @@ const FILTERS = [
   { id: 'all', label: 'All', match: () => true },
 ];
 
-const TASK_SELECT = '*, customer:customer_id(id, full_name, phone, email, rating, rating_count), worker:assigned_worker_id(id, full_name, phone, rating, rating_count)';
+const TASK_SELECT = '*, customer:customer_id(id, full_name, rating, rating_count), worker:assigned_worker_id(id, full_name, rating, rating_count)';
 
 export default function Tasks() {
   const initialSel = window.location.hash.split('/')[1] || null;
@@ -120,12 +120,12 @@ function TaskDetail({ t }) {
           <Avatar name={t.customer?.full_name} />
           <div style={{ flex: 1 }}>
             <div><strong>{t.customer?.full_name}</strong> <span className="faint small">{rating(t.customer?.rating, t.customer?.rating_count)}</span></div>
-            <div className="small muted">{[t.customer?.phone, t.customer?.email].filter(Boolean).join(' · ')}</div>
+            <Contact id={t.customer_id} />
           </div>
         </div>
         {t.for_whom === 'other' && (
           <div className="small muted">
-            <strong>Booked for:</strong> {t.recipient_name}{t.recipient_relation ? ` (${t.recipient_relation})` : ''}{t.recipient_phone ? ` · ${t.recipient_phone}` : ''}
+            <strong>Booked for:</strong> {t.recipient_name}{t.recipient_relation ? ` (${t.recipient_relation})` : ''}
           </div>
         )}
         {t.status === 'cancelled' && t.cancel_reason && <div className="small muted"><strong>Cancel reason:</strong> {t.cancel_reason}</div>}
@@ -140,12 +140,13 @@ function TaskDetail({ t }) {
           <div style={{ flex: 1 }}>
             <div className="label">Personal Manager</div>
             <strong>{t.worker.full_name}</strong> <span className="faint small">{rating(t.worker.rating, t.worker.rating_count)}</span>
-            <div className="small muted">{t.worker.phone}</div>
           </div>
         </div>
       )}
 
-      {canAssign && <Shortlist t={t} />}
+      {['requested', 'matched'].includes(t.status) && <PriceApproval t={t} />}
+      {canAssign && t.price_status !== 'awaiting_approval' && <Shortlist t={t} />}
+      {canAssign && t.price_status === 'awaiting_approval' && <div className="card small muted">Approve a price above before assigning a Personal Manager.</div>}
       {['assigned', 'in_progress'].includes(t.status) && <AdminComplete t={t} />}
       {!['completed', 'cancelled'].includes(t.status) && <CancelBox t={t} />}
       <History taskId={t.id} />
@@ -159,6 +160,29 @@ function Info({ label, value, sub }) {
       <div className="label">{label}</div>
       <div style={{ fontWeight: 600 }}>{value}</div>
       {sub && <div className="faint small">{sub}</div>}
+    </div>
+  );
+}
+
+function PriceApproval({ t }) {
+  const base = t.task_type === 'ongoing' ? t.rate_per_day : t.est_cost;
+  const [amount, setAmount] = useState(base != null ? String(base) : '');
+  const [note, setNote] = useState('');
+  const [run, busy, error] = useAction();
+  const status = t.price_status || 'confirmed';
+  const label = { awaiting_approval: 'Needs a price', awaiting_confirmation: 'Waiting for the customer to confirm', confirmed: 'Confirmed' }[status] || status;
+  return (
+    <div className="card stack">
+      <div className="row spread"><h3>Price</h3><Badge tone={status === 'confirmed' ? 'success' : 'brass'}>{label}</Badge></div>
+      {base != null && <div className="small muted">Current: {money(base)}{t.task_type === 'ongoing' ? '/day' : ''}</div>}
+      {status !== 'confirmed' && (
+        <>
+          <Field label="Price (₹)"><input className="field" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Note for the record (optional)"><input className="field" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+          <button className="btn" disabled={busy || !parseInt(amount, 10)} onClick={() => run(() => q(supabase.rpc('approve_task_price', { p_task: t.id, p_amount: parseInt(amount, 10), p_note: note.trim() || null })))}>Approve price</button>
+        </>
+      )}
+      <ErrorBox>{error}</ErrorBox>
     </div>
   );
 }

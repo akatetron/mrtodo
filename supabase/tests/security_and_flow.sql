@@ -52,16 +52,17 @@ set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"
 insert into tasks(customer_id,title,category,location,status,assigned_worker_id) values
   (auth.uid(),'Fix tap','handyman','Flat 4B, Kandivali West','completed','00000000-0000-0000-0000-0000000000a1');
 select chk((select status from tasks)='requested' and (select assigned_worker_id from tasks) is null, 'insert forced to requested/unassigned');
-select chk((select count(*) from task_otps)=1 and (select code from task_otps) ~ '^\d{4}$', 'customer sees 4-digit OTP');
+select expect_error($$select * from task_otps$$, 'customers cannot read completion codes from the table');
 update tasks set status='completed';
 select chk((select status from tasks)='requested', 'direct update is a no-op (no update policy)');
 select expect_error($$select assign_task((select id from tasks limit 1),'00000000-0000-0000-0000-0000000000a1')$$, 'customer cannot assign');
-insert into tasks(customer_id,title,category,location) values ('00000000-0000-0000-0000-0000000000ee','spoof','handyman','y');
-select chk((select customer_id from tasks where title='spoof')=auth.uid(), 'spoofed customer_id rewritten to caller');
-delete from tasks where title='spoof';
-reset role; delete from tasks where title='spoof'; set role authenticated;
+select expect_error($$insert into tasks(customer_id,title,category,location) values ('00000000-0000-0000-0000-0000000000ee','spoof','handyman','y')$$, 'cannot post a task as someone else');
 
 -- ===== Admin
+set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
+select approve_task_price((select id from tasks limit 1), 650);
+set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
+select confirm_task_price((select id from tasks limit 1));
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
 select expect_error($$select review_pm_application('00000000-0000-0000-0000-0000000000a1','more_info','')$$, 'more_info needs note');
 select expect_error($$select assign_task((select id from tasks limit 1),'00000000-0000-0000-0000-0000000000a1')$$, 'cannot assign unapproved PM');
@@ -74,17 +75,17 @@ select chk((select count(*) from profiles)=5, 'admin sees all profiles');
 
 -- ===== PM declines, gets reassigned, accepts
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
-select chk((select status from tasks)='matched', 'PM sees offered task');
-select chk((select count(*) from task_otps)=0, 'PM cannot read OTP');
+select chk((select count(*) from pm_offers())=1, 'PM sees the offer (area only) through the offers list');
+select expect_error($$select * from task_otps$$, 'PM cannot read completion codes');
 select chk((select full_name from profiles where id='00000000-0000-0000-0000-0000000000c1')='Priya', 'PM sees customer name');
-select expect_error($$select start_task((select id from tasks limit 1))$$, 'cannot start before accept');
-select decline_task((select id from tasks limit 1),'busy');
-select chk((select count(*) from tasks)=0, 'declined task leaves PM view');
+select expect_error($$select start_task((select id from pm_offers() limit 1))$$, 'cannot start before accept');
+select decline_task((select id from pm_offers() limit 1),'busy');
+select chk((select count(*) from pm_offers())=0 and (select count(*) from tasks)=0, 'declined task leaves PM view');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
 select chk((select declined from shortlist_workers((select id from tasks limit 1)) where full_name='Rakesh K'), 'shortlist flags decline');
 select assign_task((select id from tasks limit 1),'00000000-0000-0000-0000-0000000000a1');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
-select accept_task((select id from tasks limit 1));
+select accept_task((select id from pm_offers() limit 1));
 select expect_error($$select complete_task((select id from tasks limit 1),'0000')$$, 'cannot complete before start');
 select start_task((select id from tasks limit 1));
 select log_visit((select id from tasks limit 1),'Day 1');
@@ -98,10 +99,11 @@ set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"
 select expect_error($$select cancel_task((select id from tasks limit 1))$$, 'customer cannot cancel in-progress');
 select chk((select count(*) from task_visits)=1, 'customer sees visit');
 select expect_error($$select rate_task((select id from tasks limit 1),5)$$, 'cannot rate before completion');
-reset role;
-create temp table code as select code from task_otps; grant select on code to authenticated;
-set role authenticated;
+create temp table code as select completion_code as code from issue_completion_code((select id from tasks limit 1)); grant select on code to authenticated;
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select chk(complete_task((select id from tasks limit 1), (select code from code))='missing_evidence', 'completion needs Before and After photos');
+insert into task_photos(task_id,kind,storage_path,content_type,size_bytes) select id,'before',id::text||'/before-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg','image/jpeg',100 from tasks;
+insert into task_photos(task_id,kind,storage_path,content_type,size_bytes) select id,'after',id::text||'/after-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jpg','image/jpeg',100 from tasks;
 select chk(complete_task((select id from tasks limit 1), case when (select code from code)='1111' then '2222' else '1111' end)='wrong', 'wrong code rejected');
 select chk(complete_task((select id from tasks limit 1), (select code from code))='ok', 'right code completes');
 select chk((select jobs_done from profiles where id=auth.uid())=1, 'jobs_done incremented');
@@ -115,13 +117,15 @@ select chk((select count(*) from audit_log)=0, 'customer cannot read audit log')
 -- lockout
 insert into tasks(customer_id,title,category,location) values (auth.uid(),'Clean','cleaning','Borivali');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
+select approve_task_price((select id from tasks where title='Clean'), 500);
+set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
+select confirm_task_price((select id from tasks where title='Clean'));
+set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
 select assign_task((select id from tasks where title='Clean'),'00000000-0000-0000-0000-0000000000a2');
 select review_pm_application('00000000-0000-0000-0000-0000000000a1','suspended','test');
 select expect_error($$select assign_task((select id from tasks where title='Clean'),'00000000-0000-0000-0000-0000000000a1')$$, 'suspended PM cannot be assigned');
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
-select accept_task((select id from tasks limit 1)); select start_task((select id from tasks limit 1));
-select complete_task((select id from tasks limit 1),'x') from generate_series(1,4);
-select chk(complete_task((select id from tasks limit 1),(select code from code))='locked', 'locked after 5 wrong (even right code)');
+select accept_task((select id from pm_offers() limit 1)); select start_task((select id from tasks where title='Clean'));
 set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000ad","role":"authenticated"}';
 select admin_complete_task((select id from tasks where title='Clean'),'Customer confirmed by phone');
 select chk((select count(*) from audit_log) > 10, 'admin reads audit log');

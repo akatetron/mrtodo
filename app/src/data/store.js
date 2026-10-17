@@ -7,6 +7,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { supabase } from '../lib/supabase';
+import { isMissingFeature } from '../lib/errors';
 
 export const CATEGORIES = [
   { id: 'handyman', label: 'Handyman', emoji: '🔧' },
@@ -55,14 +56,13 @@ function mapPerson(p) {
     id: p.id,
     name: p.full_name,
     initials: initials(p.full_name),
-    phone: p.phone,
     rating: p.rating == null ? null : Number(p.rating),
     ratingCount: p.rating_count || 0,
     jobsDone: p.jobs_done || 0,
   };
 }
 
-function mapTask(row, visits, otp) {
+function mapTask(row, visits) {
   return {
     id: row.id,
     title: row.title,
@@ -77,8 +77,15 @@ function mapTask(row, visits, otp) {
     forWhom: row.for_whom,
     recipientName: row.recipient_name,
     recipientRelation: row.recipient_relation,
-    recipientPhone: row.recipient_phone,
-    otp: otp || null, // only ever present for the task's own customer
+    currency: row.currency || 'INR',
+    priceStatus: row.price_status || 'confirmed',   // older databases have no price states: treat their tasks as settled
+    priceSource: row.price_source || null,
+    templateId: row.template_id || null,
+    pmShareBps: row.pm_share_bps == null ? null : row.pm_share_bps,
+    isPremium: !!row.is_premium,
+    routingMode: row.routing_mode || 'admin',
+    estDurationMinutes: row.est_duration_minutes || null,
+    priceApprovedAt: row.price_approved_at || null,
     assignedWorkerId: row.assigned_worker_id,
     customerId: row.customer_id,
     customer: mapPerson(row.customer),
@@ -99,6 +106,21 @@ function mapTask(row, visits, otp) {
   };
 }
 
+// An offer a PM has not accepted yet. The database gives only the area (never the
+// street address) and no customer details, so those fields stay empty here.
+function mapOffer(o, workerId) {
+  return {
+    id: o.id, title: o.title, description: o.description, category: o.category, taskType: o.task_type,
+    status: o.status, scheduledFor: o.scheduled_for, location: o.area, masked: true,
+    estCost: o.est_cost == null ? null : Number(o.est_cost), ratePerDay: o.rate_per_day == null ? null : Number(o.rate_per_day),
+    currency: o.currency || 'INR', priceStatus: o.price_status, isPremium: !!o.is_premium,
+    estDurationMinutes: o.est_duration_minutes || null, earnShareBps: o.earn_share_bps,
+    forWhom: 'self', assignedWorkerId: workerId, customerId: null, customer: null, worker: null,
+    assignedAt: o.assigned_at, createdAt: o.created_at, completedAt: null, visits: [],
+    customerRatingOfWorker: null, workerRatingOfCustomer: null,
+  };
+}
+
 // ---- tiny external store, populated from Supabase + realtime ------------------
 
 let tasks = [];
@@ -110,6 +132,8 @@ function getSnapshot() { return tasks; }
 let channel = null;
 let refreshTimer = null;
 let generation = 0; // bumps on sign-out so late responses for the old user are dropped
+let storeUserId = null;
+export function setStoreUser(id) { storeUserId = id || null; }
 
 function scheduleRefresh() {
   clearTimeout(refreshTimer);
@@ -128,21 +152,22 @@ async function ensureStarted() {
 
 export async function refreshAll() {
   const gen = generation;
-  const [taskRes, visitRes, otpRes] = await Promise.all([
+  const [taskRes, visitRes, offerRes] = await Promise.all([
     supabase
       .from('tasks')
-      .select('*, customer:customer_id(id, full_name, rating, rating_count, phone), worker:assigned_worker_id(id, full_name, rating, rating_count, jobs_done, phone)')
+      .select('*, customer:customer_id(id, full_name, rating, rating_count), worker:assigned_worker_id(id, full_name, rating, rating_count, jobs_done)')
       .order('created_at', { ascending: false }),
     supabase.from('task_visits').select('*').order('created_at', { ascending: true }),
-    supabase.from('task_otps').select('task_id, code'),
+    supabase.rpc('pm_offers'),     // only a PM gets rows; everyone else (and an old database) gets none
   ]);
   if (gen !== generation) return;
   if (taskRes.error) { console.warn('Loading tasks failed:', taskRes.error.message); return; }
   const visitsByTask = {};
   (visitRes.data || []).forEach((v) => { (visitsByTask[v.task_id] ||= []).push(v); });
-  const otpByTask = {};
-  (otpRes.data || []).forEach((o) => { otpByTask[o.task_id] = o.code; });
-  tasks = (taskRes.data || []).map((r) => mapTask(r, visitsByTask[r.id], otpByTask[r.id]));
+  const mapped = (taskRes.data || []).map((r) => mapTask(r, visitsByTask[r.id]));
+  const known = new Set(mapped.map((t) => t.id));
+  const offers = offerRes.error ? [] : (offerRes.data || []).filter((o) => !known.has(o.id)).map((o) => mapOffer(o, storeUserId));
+  tasks = [...offers, ...mapped];
   emit();
 }
 
@@ -181,7 +206,17 @@ async function rpc(name, args) {
   return data;
 }
 
+function newRequestId() {
+  const hex = '0123456789abcdef';
+  const pick = (n) => Array.from({ length: n }, () => hex[Math.floor(Math.random() * 16)]).join('');
+  return `${pick(8)}-${pick(4)}-4${pick(3)}-a${pick(3)}-${pick(12)}`;
+}
+
+// The customer says what they need. The price is never part of it: a template
+// brings its own approved price, and anything else is priced by an admin, who
+// the customer then confirms (see confirmTaskPrice).
 export async function createTask(input, customerId) {
+  const requestId = input.requestId || newRequestId();     // kept by the caller across retries
   const { data, error } = await supabase.from('tasks').insert({
     customer_id: customerId,
     title: input.title,
@@ -190,14 +225,31 @@ export async function createTask(input, customerId) {
     task_type: input.taskType,
     scheduled_for: input.scheduledFor || null,
     location: input.location,
-    est_cost: input.estCost ?? null,
-    rate_per_day: input.ratePerDay ?? null,
+    template_id: input.templateId || null,
     for_whom: input.forWhom,
     recipient_name: input.recipientName || null,
     recipient_relation: input.recipientRelation || null,
     recipient_phone: input.recipientPhone || null,
+    client_request_id: requestId,
   }).select('id').single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.code === '23505') {      // this exact request was already saved: use that task
+      const { data: existing } = await supabase.from('tasks').select('id').eq('client_request_id', requestId).maybeSingle();
+      if (existing) { await refreshAll(); return existing; }
+    }
+    // Older databases do not have these columns yet: post the old way.
+    if (isMissingFeature(error) || /client_request_id|template_id/.test(error.message)) {
+      const fallback = await supabase.from('tasks').insert({
+        customer_id: customerId, title: input.title, description: input.description || null, category: input.category,
+        task_type: input.taskType, scheduled_for: input.scheduledFor || null, location: input.location,
+        for_whom: input.forWhom, recipient_name: input.recipientName || null, recipient_relation: input.recipientRelation || null,
+      }).select('id').single();
+      if (fallback.error) throw new Error(fallback.error.message);
+      await refreshAll();
+      return fallback.data;
+    }
+    throw new Error(error.message);
+  }
   await refreshAll();
   return data;
 }
@@ -209,8 +261,96 @@ export const logVisit = (taskId, note) => rpc('log_visit', { p_task: taskId, p_n
 export const cancelTask = (taskId, reason) => rpc('cancel_task', { p_task: taskId, p_reason: reason || null });
 export const rateTask = (taskId, rating, review) => rpc('rate_task', { p_task: taskId, p_rating: rating, p_review: review || null });
 
-// Resolves to 'ok', 'wrong' or 'locked'.
-export const completeWithOtp = (taskId, code) => rpc('complete_task', { p_task: taskId, p_code: code });
+// Resolves to one of: ok, wrong, locked, expired, no_code, missing_evidence, rate_limited.
+// `requestKey` stays the same across retries of one completion, so a repeat after a
+// dropped connection cannot complete the task twice.
+export async function completeWithOtp(taskId, code, requestKey) {
+  let res = await supabase.rpc('complete_task', { p_task: taskId, p_code: code, p_idempotency_key: requestKey || null });
+  if (res.error && isMissingFeature(res.error)) {
+    res = await supabase.rpc('complete_task', { p_task: taskId, p_code: code });   // database not updated yet
+  }
+  if (res.error) throw new Error(res.error.message);
+  await refreshAll();
+  return res.data;
+}
+
+// What each result means, in words a Personal Manager can act on.
+export const COMPLETION_MESSAGES = {
+  wrong: 'That code is not right. Ask the customer to read it out again.',
+  locked: 'Too many wrong codes. Ask the customer to tap "Show a new code" in their app.',
+  expired: 'That code has expired. Ask the customer to tap "Show a new code".',
+  no_code: 'The customer has not shown a code yet. Ask them to tap "Show my completion code".',
+  missing_evidence: 'Add a Before and an After photo first.',
+  rate_limited: 'Too many tries in a short time. Wait a few minutes, then try again.',
+};
+
+// The customer shows a code to the Personal Manager when the work is done.
+// Asking again replaces the old one. The code is only ever returned here, once.
+export async function issueCompletionCode(taskId) {
+  const { data, error } = await supabase.rpc('issue_completion_code', { p_task: taskId });
+  if (!error) {
+    const row = Array.isArray(data) ? data[0] : data;
+    return { code: row.completion_code, validUntil: row.valid_until };
+  }
+  if (isMissingFeature(error)) {      // database not updated yet: the old way, where the customer could read it
+    const legacy = await supabase.from('task_otps').select('code').eq('task_id', taskId).maybeSingle();
+    if (legacy.data?.code) return { code: legacy.data.code, validUntil: null };
+  }
+  throw new Error(error.message);
+}
+
+export async function completionCodeState(taskId) {
+  const { data, error } = await supabase.rpc('completion_code_state', { p_task: taskId });
+  if (error) return null;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? { active: row.active, locked: row.locked, expired: row.expired, validUntil: row.valid_until } : null;
+}
+
+// ---- prices ----------------------------------------------------------------------
+
+export const confirmTaskPrice = (taskId) => rpc('confirm_task_price', { p_task: taskId });
+export const approveTaskPrice = (taskId, amount, note) => rpc('approve_task_price', { p_task: taskId, p_amount: amount, p_note: note || null });
+
+// Approved Standard Templates a customer can start from. Empty on an older database.
+export async function listTemplates() {
+  const { data, error } = await supabase.from('task_templates')
+    .select('id, key, name, category, description, pricing_mode, price, currency, est_duration_minutes, is_premium')
+    .eq('is_active', true).order('name');
+  return error ? [] : data || [];
+}
+
+// How the price of a task reads to the person looking at it.
+//   template + confirmed   -> "₹650 · standard price"
+//   admin price, waiting   -> "₹750 · confirm to go ahead"
+//   no price yet           -> "Price being set"
+export function priceSummary(t) {
+  const amount = t.taskType === 'ongoing' ? t.ratePerDay : t.estCost;
+  const sym = (t.currency || 'INR') === 'INR' ? '₹' : `${t.currency} `;
+  const money = amount == null ? null : `${sym}${Number(amount).toLocaleString('en-IN')}${t.taskType === 'ongoing' ? '/day' : ''}`;
+  if (t.priceStatus === 'awaiting_approval' || amount == null) {
+    return { label: 'Price being set', detail: 'Our team prices tasks like this one, usually within a few minutes. You confirm it before work starts.', tone: 'neutral', amount: null };
+  }
+  if (t.priceStatus === 'awaiting_confirmation') {
+    return { label: money, detail: 'Waiting for you to confirm this price.', tone: 'brass', amount: money };
+  }
+  return { label: money, detail: t.priceSource === 'template' ? 'Standard price' : 'Price confirmed', tone: 'success', amount: money };
+}
+
+// ---- contact details (never part of a profile or task any more) ------------------
+
+export async function myContact() {
+  const { data, error } = await supabase.rpc('my_contact');
+  if (error) return { phone: '', email: '' };
+  const row = Array.isArray(data) ? data[0] : data;
+  return { phone: row?.phone || '', email: row?.email || '' };
+}
+
+// Admins only, and every lookup is recorded by the database.
+export async function adminContacts(ids) {
+  const { data, error } = await supabase.rpc('admin_contacts', { p_ids: ids });
+  if (error) throw new Error(error.message);
+  return Object.fromEntries((data || []).map((r) => [r.id, { phone: r.phone, email: r.email }]));
+}
 
 // ---- admin actions (the database refuses all of these for non-admins) ------------
 
@@ -319,8 +459,15 @@ export function runningTotal(t) {
   return t.estCost || 0;
 }
 
+// The share is in basis points (8000 = 80%). A finished job uses the share recorded when it
+// was completed; an offer or work in progress uses the PM's current rate.
+export function pmShare(t) {
+  const bps = t.pmShareBps ?? t.earnShareBps;
+  return bps == null ? PM_SHARE : bps / 10000;
+}
+
 export function pmEarning(t) {
-  return Math.round(runningTotal(t) * PM_SHARE);
+  return Math.round(runningTotal(t) * pmShare(t));
 }
 
 export function catMeta(id) {

@@ -70,7 +70,7 @@ create function auth.role() returns text language sql stable as $$
   select coalesce(current_setting('request.jwt.claims', true)::json->>'role','anon')
 $$;
 
-create table storage.buckets (id text primary key, name text, public boolean);
+create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
 create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text);
 alter table storage.objects enable row level security;
 grant all on storage.objects to authenticated;

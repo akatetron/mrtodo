@@ -7,7 +7,7 @@ import { Card, Badge, Button, FieldLabel, Input, ErrorText, StatusTracker } from
 import TaskPhotos from '../../components/TaskPhotos';
 import {
   useTasks, getTask, catMeta, STATUS_META, shortId, initials, formatRating, timeAgo, visitsDone, runningTotal,
-  PM_SHARE, assignTask, cancelTask, adminCompleteTask, listShortlist, taskHistory, catMeta as cat,
+  PM_SHARE, assignTask, cancelTask, adminCompleteTask, approveTaskPrice, priceSummary, listShortlist, taskHistory, catMeta as cat,
 } from '../../data/store';
 
 const ACTION_LABEL = {
@@ -84,11 +84,44 @@ export default function AdminTaskScreen({ route }) {
 
       <TaskPhotos taskId={t.id} canAdd={false} hideIfEmpty />
 
-      {canAssign && <Shortlist t={t} />}
+      {['requested', 'matched'].includes(t.status) && <PriceApproval t={t} />}
+      {canAssign && t.priceStatus !== 'awaiting_approval' && <Shortlist t={t} />}
+      {canAssign && t.priceStatus === 'awaiting_approval' && (
+        <Card><Text style={styles.hint}>Approve a price above before assigning a Personal Manager.</Text></Card>
+      )}
       {['assigned', 'in_progress'].includes(t.status) && <CompleteWithoutCode t={t} />}
       {!['completed', 'cancelled'].includes(t.status) && <CancelBox t={t} />}
       <History taskId={t.id} status={t.status} />
     </ScrollView>
+  );
+}
+
+function PriceApproval({ t }) {
+  const base = t.taskType === 'ongoing' ? t.ratePerDay : t.estCost;
+  const [amount, setAmount] = useState(base != null ? String(base) : '');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const p = priceSummary(t);
+  async function approve() {
+    const n = parseInt(amount, 10);
+    if (!n || n <= 0) return setError('Enter the price in rupees.');
+    setBusy(true); setError('');
+    try { await approveTaskPrice(t.id, n, note.trim()); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <Card style={{ gap: spacing.sm }}>
+      <Text style={styles.h2}>Price</Text>
+      <Text style={styles.hint}>{p.label}{p.amount ? ` · ${p.detail}` : ''}</Text>
+      {t.priceStatus !== 'confirmed' && (
+        <>
+          <Input placeholder="Price (₹)" value={amount} onChangeText={setAmount} keyboardType="numeric" />
+          <Input placeholder="Note for the record (optional)" value={note} onChangeText={setNote} />
+          <Button label={busy ? 'Saving…' : 'Approve price'} onPress={approve} disabled={busy} />
+        </>
+      )}
+      <ErrorText>{error}</ErrorText>
+    </Card>
   );
 }
 
@@ -243,7 +276,7 @@ function PersonCard({ label, person }) {
         <View style={styles.avatar}><Text style={styles.avatarText}>{initials(person.name)}</Text></View>
         <View style={{ flex: 1 }}>
           <Text style={styles.cname}>{person.name}</Text>
-          <Text style={styles.hint}>{formatRating(person.rating, person.ratingCount)}{person.phone ? ` · ${person.phone}` : ''}</Text>
+          <Text style={styles.hint}>{formatRating(person.rating, person.ratingCount)}</Text>
         </View>
       </View>
     </Card>

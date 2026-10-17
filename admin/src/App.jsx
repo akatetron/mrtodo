@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './lib/supabase';
+import { PROFILE_COLUMNS } from './lib/constants';
 import { useLive, q } from './lib/useLive';
 import Login from './pages/Login';
 import Overview from './pages/Overview';
@@ -36,7 +37,7 @@ export default function App() {
   useEffect(() => {
     setProfile(null);
     if (!userId) return;
-    supabase.from('profiles').select('*').eq('id', userId).single().then(({ data }) => {
+    supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', userId).single().then(({ data }) => {
       if (data?.role === 'admin') { setProfile(data); setDenied(''); return; }
       setDenied('This account is not an admin. Ask an existing admin to promote it (see SETUP_BACKEND.md).');
       supabase.auth.signOut();

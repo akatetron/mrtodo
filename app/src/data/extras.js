@@ -9,15 +9,10 @@
 import { useSyncExternalStore } from 'react';
 import { Platform, Share } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { refreshAll } from './store';
 
-// PostgREST says "relation does not exist" with these codes/messages.
-export function isMissingFeature(error) {
-  if (!error) return false;
-  const text = `${error.code || ''} ${error.message || ''}`;
-  return /PGRST20[0-9]|42P01|42883|does not exist|could not find the (table|function)|schema cache/i.test(text);
-}
-
-export const UPDATE_HINT = 'This part needs the latest database update. Run the newest supabase/schema.sql in your Supabase SQL Editor.';
+import { isMissingFeature, UPDATE_HINT } from '../lib/errors';
+export { isMissingFeature, UPDATE_HINT };
 
 // ---- notifications ---------------------------------------------------------------
 
@@ -39,6 +34,7 @@ async function loadNotifications() {
     nState = { items: data, unread: data.filter((n) => !n.read_at).length, unavailable: false, loaded: true };
   }
   nEmit();
+  refreshAll();   // a notification usually means a task changed; offers reach a PM this way
 }
 
 export function startNotifications(userId) {
