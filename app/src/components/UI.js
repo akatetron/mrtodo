@@ -140,12 +140,12 @@ const styles = StyleSheet.create({
   btn: {
     minHeight: 52,
     paddingVertical: 13,
-    paddingHorizontal: 20,
-    borderRadius: radius.md,
+    paddingHorizontal: 22,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnSm: { minHeight: 48, paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.sm },
+  btnSm: { minHeight: 48, paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.pill },
   btnText: { fontWeight: '800', fontSize: 16 },
   input: {
     borderWidth: 1.5,
