@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
-import { colors, radius, spacing } from '../theme';
+import { colors, radius, spacing, shadow } from '../theme';
 
 export function Card({ children, style }) {
   return <View style={[styles.card, style]}>{children}</View>;
@@ -128,44 +128,47 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.lg,
     padding: spacing.lg,
+    ...shadow.card,
   },
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: radius.pill,
     alignSelf: 'flex-start',
   },
-  badgeText: { fontSize: 12, fontWeight: '700' },
+  badgeText: { fontSize: 13, fontWeight: '700' },
   btn: {
+    minHeight: 52,
     paddingVertical: 13,
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnSm: { paddingVertical: 9, paddingHorizontal: 13, borderRadius: radius.sm },
-  btnText: { fontWeight: '700', fontSize: 14.5 },
+  btnSm: { minHeight: 48, paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.sm },
+  btnText: { fontWeight: '800', fontSize: 16 },
   input: {
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.sm,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    fontSize: 14.5,
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
     color: colors.text,
     backgroundColor: colors.surface,
   },
   chip: {
-    paddingHorizontal: 13, paddingVertical: 8, borderRadius: radius.pill,
+    minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.pill,
     borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface,
   },
   chipOn: { borderColor: colors.accent, backgroundColor: colors.accentLight },
   chipOnDanger: { borderColor: colors.danger, backgroundColor: colors.dangerLight },
-  chipText: { fontSize: 13, fontWeight: '700', color: colors.muted },
+  chipText: { fontSize: 15, fontWeight: '700', color: colors.muted },
   inputMulti: { height: 84, textAlignVertical: 'top' },
-  error: { color: colors.danger, fontSize: 13, lineHeight: 18 },
+  error: { color: colors.danger, fontSize: 15, lineHeight: 21 },
   fieldLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.muted,
     textTransform: 'uppercase',
@@ -185,6 +188,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   trackDotInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
-  trackLabel: { fontSize: 10.5, fontWeight: '700', marginTop: 6, textAlign: 'center' },
+  trackLabel: { fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
   trackLine: { height: 2, flex: 1, marginTop: 12, marginHorizontal: -4 },
 });
