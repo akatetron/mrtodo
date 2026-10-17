@@ -109,15 +109,43 @@ export async function listPhotos(taskId) {
   return { photos: data.map((p) => ({ ...p, url: byPath[p.storage_path] || null })), unavailable: false };
 }
 
+const PHOTO_TYPES = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic' };
+
+function newId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 // `file` is an asset from expo-document-picker: { uri, name, mimeType }.
+// The file name and the row carry what the database checks: a name of the form
+// <task>/<kind>-<id>.<ext>, the file type and its size. A retake of a Before or
+// After replaces the first one.
 export async function uploadPhoto(taskId, kind, file) {
-  const safeName = (file.name || 'photo.jpg').replace(/[^\w.\-]+/g, '_');
-  const path = `${taskId}/${Date.now()}-${safeName}`;
+  const ext = (file.name || '').split('.').pop().toLowerCase();
+  let contentType = (file.mimeType || '').toLowerCase();
+  if (!PHOTO_TYPES[contentType]) contentType = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic' }[ext] || 'image/jpeg';
+  const clientId = newId();
+  const path = `${taskId}/${kind}-${clientId}.${PHOTO_TYPES[contentType]}`;
   const body = await (await fetch(file.uri)).arrayBuffer();
-  const { error: upErr } = await supabase.storage
-    .from('task-photos').upload(path, body, { contentType: file.mimeType || 'image/jpeg' });
+  if (body.byteLength > 10 * 1024 * 1024) throw new Error('That photo is too large. Pick one under 10 MB.');
+  if (!body.byteLength) throw new Error('That photo is empty. Pick another one.');
+
+  if (kind === 'before' || kind === 'after') {
+    const { data: old } = await supabase.from('task_photos').select('id, storage_path').eq('task_id', taskId).eq('kind', kind);
+    for (const p of old || []) await removePhoto(p).catch(() => {});
+  }
+
+  const { error: upErr } = await supabase.storage.from('task-photos').upload(path, body, { contentType });
   if (upErr) throw new Error(isMissingFeature(upErr) ? UPDATE_HINT : upErr.message);
-  const { error } = await supabase.from('task_photos').insert({ task_id: taskId, kind, storage_path: path });
+
+  const row = { task_id: taskId, kind, storage_path: path, client_id: clientId, content_type: contentType, size_bytes: body.byteLength };
+  let { error } = await supabase.from('task_photos').insert(row);
+  if (error && /column|schema cache/i.test(error.message)) {       // database not updated yet: the first release's columns
+    ({ error } = await supabase.from('task_photos').insert({ task_id: taskId, kind, storage_path: path }));
+  }
   if (error) {
     await supabase.storage.from('task-photos').remove([path]);
     throw new Error(isMissingFeature(error) ? UPDATE_HINT : error.message);
