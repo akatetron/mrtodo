@@ -6,6 +6,8 @@ import { colors, spacing, radius } from '../../theme';
 import { Card, Badge, Button, FieldLabel, Input, ErrorText, StatusTracker } from '../../components/UI';
 import TaskPhotos from '../../components/TaskPhotos';
 import { AdminScopeChange } from '../../components/ScopeChange';
+import { AdminQuote, QuoteHistory } from '../../components/QuoteFlow';
+import SpecialistPanel from '../../components/SpecialistPanel';
 import {
   useTasks, getTask, catMeta, STATUS_META, shortId, initials, formatRating, timeAgo, visitsDone, runningTotal,
   PM_SHARE, assignTask, cancelTask, adminCompleteTask, approveTaskPrice, priceSummary, listShortlist, taskHistory, catMeta as cat,
@@ -87,6 +89,9 @@ export default function AdminTaskScreen({ route }) {
 
       {t.reviewState === 'needs_review' && <Card><Text style={styles.hint}>Review needed: this request has no fixed price yet, or needs a specialist check.</Text></Card>}
       <AdminScopeChange t={t} />
+      <AdminQuote t={t} />
+      <QuoteHistory t={t} />
+      {['assigned', 'in_progress'].includes(t.status) && <SpecialistPanel t={t} />}
       {['requested', 'matched'].includes(t.status) && <PriceApproval t={t} />}
       {canAssign && t.priceStatus !== 'awaiting_approval' && <Shortlist t={t} />}
       {canAssign && t.priceStatus === 'awaiting_approval' && (
@@ -181,12 +186,14 @@ function Shortlist({ t }) {
                 {w.areaMatch && <Badge label="📍 Same area" tone="success" />}
                 {!w.online && <Badge label="Unavailable" tone="brass" />}
                 {w.declined && <Badge label="Declined this" tone="danger" />}
+                {w.tier === 'gold' && <Badge label="Gold Tier" tone="brass" />}
+                {!w.eligible && <Badge label={`Not verified for: ${w.missingSkills.join(', ')}`} tone="danger" />}
                 {w.activeJobs > 0 && <Badge label={`${w.activeJobs} active`} />}
               </View>
             </View>
             {current
               ? <Badge label="Offered" tone="accent" />
-              : <Button label={busyId === w.id ? '…' : 'Assign'} size="sm" disabled={!!busyId} onPress={() => assign(w)} />}
+              : <Button label={busyId === w.id ? '…' : w.eligible ? 'Assign' : 'Not qualified'} size="sm" disabled={!!busyId || !w.eligible} onPress={() => assign(w)} />}
           </View>
         );
       })}

@@ -383,6 +383,8 @@ begin
 end $$;
 
 -- Ranked list of approved PMs for a task, best first. Admins only.
+-- Dropped first so that re-running after a later migration changed the columns it returns still works.
+drop function if exists public.shortlist_workers(uuid);
 create or replace function public.shortlist_workers(p_task uuid)
 returns table (
   id uuid, full_name text, rating numeric, rating_count int, jobs_done int,

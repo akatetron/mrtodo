@@ -397,6 +397,41 @@ export const decideScopeChangeAdmin = (changeId, approve, note, priceImpact) =>
   rpc('decide_scope_change_admin', { p_change: changeId, p_approve: approve, p_note: note || null, p_price_impact: priceImpact ?? null });
 export const decideScopeChangeCustomer = (changeId, approve) => rpc('decide_scope_change_customer', { p_change: changeId, p_approve: approve });
 
+// ---- quotes, qualifications, assessments and the PM profile -------------------------
+
+export async function listQuotes(taskId) {
+  const { data, error } = await supabase.from('task_quotes').select('*').eq('task_id', taskId).order('version', { ascending: false });
+  return error ? [] : data || [];
+}
+export const proposeQuote = (taskId, components, reason) => rpc('propose_quote', { p_task: taskId, p_components: components, p_reason: reason });
+export const decideQuoteAdmin = (id, approve, note) => rpc('decide_quote_admin', { p_quote: id, p_approve: approve, p_note: note || null });
+export const decideQuoteCustomer = (id, approve) => rpc('decide_quote_customer', { p_quote: id, p_approve: approve });
+
+export async function listSkills() {
+  const { data, error } = await supabase.from('skills').select('*').eq('active', true).order('name');
+  return error ? [] : data || [];
+}
+export async function myQualifications(workerId) {
+  const { data, error } = await supabase.from('pm_qualifications').select('*').eq('worker_id', workerId);
+  return error ? [] : data || [];
+}
+export const claimSkill = (skill, note) => rpc('claim_skill', { p_skill: skill, p_note: note || null });
+export async function availableAssessments() {
+  const { data, error } = await supabase.rpc('available_assessments');
+  return error ? [] : data || [];
+}
+export async function submitAssessment(id, answers) {
+  const { data, error } = await supabase.rpc('submit_assessment', { p_assessment: id, p_answers: answers });
+  if (error) throw new Error(error.message);
+  await refreshAll();
+  return data;
+}
+export async function pmPublicProfile(workerId) {
+  const { data, error } = await supabase.rpc('pm_public_profile', { p_worker: workerId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 // ---- admin actions (the database refuses all of these for non-admins) ------------
 
 export const assignTask = (taskId, workerId) => rpc('assign_task', { p_task: taskId, p_worker: workerId });
@@ -419,6 +454,9 @@ export async function listShortlist(taskId) {
     areaMatch: w.area_match,
     declined: w.declined,
     activeJobs: w.active_jobs || 0,
+    eligible: w.eligible !== false,                // older databases do not say: treat as eligible
+    missingSkills: w.missing_skills || [],
+    tier: w.tier || 'standard',
   }));
 }
 

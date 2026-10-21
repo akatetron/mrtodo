@@ -12,7 +12,7 @@ import {
   listCatalogueAdmin, saveFamily, saveServiceDraft, serviceReadiness, publishService, setServiceStatus, duplicateService,
   isSuperAdmin, useLiveQuery,
 } from '../../data/adminData';
-import { CATEGORIES } from '../../data/store';
+import { CATEGORIES, listSkills } from '../../data/store';
 
 const QTYPES = [['short_text', 'Short answer'], ['long_text', 'Long answer'], ['single_choice', 'Pick one'], ['multiple_choice', 'Pick several'], ['datetime', 'Date and time'], ['address', 'Address']];
 const APPROACHES = [['manual_quote', 'Quote by our team'], ['estimate_approval', 'Estimate, then approve'], ['fixed', 'Fixed price']];
@@ -89,7 +89,9 @@ function ServiceEditor({ families, initial, onDone }) {
   const [description, setDescription] = useState(d.description || '');
   const [instructions, setInstructions] = useState(d.instructions || '');
   const [safety, setSafety] = useState(d.safety_notes || '');
-  const [skills, setSkills] = useState((d.required_skills || []).join(', '));
+  const [skillList, setSkillList] = useState([]);
+  React.useEffect(() => { listSkills().then(setSkillList); }, []);
+  const [skills, setSkills] = useState(d.required_skills || []);
   const [specialist, setSpecialist] = useState(!!d.requires_specialist);
   const [duration, setDuration] = useState(d.duration_minutes ? String(d.duration_minutes) : '');
   const [category, setCategory] = useState(s?.category || 'general');
@@ -106,7 +108,7 @@ function ServiceEditor({ families, initial, onDone }) {
 
   const definition = () => ({
     title: title.trim(), description: description.trim(), instructions: instructions.trim() || undefined, safety_notes: safety.trim() || undefined,
-    required_skills: skills.split(',').map((x) => x.trim()).filter(Boolean), requires_specialist: specialist,
+    required_skills: skills, requires_specialist: specialist,
     duration_minutes: duration ? parseInt(duration, 10) : undefined, questions,
     pricing: { approach, currency: 'INR', price: approach === 'fixed' && price ? Number(price) : undefined, explanation: explanation.trim() || undefined },
   });
@@ -172,10 +174,11 @@ function ServiceEditor({ families, initial, onDone }) {
 
       <Card style={{ gap: spacing.md }}>
         <Text style={styles.h2}>Who can do it</Text>
-        <View><FieldLabel>Skills a Personal Manager needs (comma separated)</FieldLabel><Input value={skills} onChangeText={setSkills} /></View>
+        <View><FieldLabel>Skills a Personal Manager must be verified for</FieldLabel>
+          <View style={styles.row}>{skillList.map((s) => <Chip key={s.key} label={s.name} selected={skills.includes(s.key)} onPress={() => setSkills(skills.includes(s.key) ? skills.filter((x) => x !== s.key) : [...skills, s.key])} />)}</View></View>
         <View><FieldLabel>Usual duration (minutes, optional)</FieldLabel><Input keyboardType="numeric" value={duration} onChangeText={setDuration} /></View>
         <Chip label="May need a specialist (an admin reviews before it is offered)" selected={specialist} onPress={() => setSpecialist(!specialist)} />
-        <Text style={styles.hint}>These are saved and shown to admins. Matching Personal Managers by skill is not enforced yet.</Text>
+        <Text style={styles.hint}>Only verified Personal Managers can be assigned to, or accept, this service. Verify people in More → People.</Text>
       </Card>
 
       <Button label={preview ? 'Hide preview' : 'Preview what customers see'} variant="ghost" onPress={() => setPreview(!preview)} />

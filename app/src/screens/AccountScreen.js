@@ -9,7 +9,7 @@ import { useAuth } from '../lib/AuthContext';
 
 const ROLE_LABEL = { customer: 'Customer', worker: 'Personal Manager', admin: 'Admin' };
 
-export default function AccountScreen() {
+export default function AccountScreen({ navigation }) {
   const { user, profile, refreshProfile, signOut } = useAuth();
   const [fullName, setFullName] = useState(profile.full_name || '');
   const [phone, setPhone] = useState('');
@@ -35,6 +35,7 @@ export default function AccountScreen() {
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg, paddingBottom: 60 }}>
       <Card style={{ gap: 6 }}>
         <Badge label={ROLE_LABEL[profile.role]} tone="accent" />
+        {profile.role === 'worker' && <Button label="Your skills and tests" variant="ghost" size="sm" onPress={() => navigation.navigate('Skills')} style={{ marginTop: 8 }} />}
         <Text style={{ fontSize: 13.5, color: colors.muted, marginTop: 6 }}>{user?.email}</Text>
         <Text style={{ fontSize: 13.5, color: colors.muted }}>Your rating: {formatRating(profile.rating, profile.rating_count)}</Text>
         {profile.role === 'worker' && (
