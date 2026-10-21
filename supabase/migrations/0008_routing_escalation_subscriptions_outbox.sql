@@ -513,6 +513,51 @@ do $$ begin
   perform cron.schedule('mrtodo-retention', '17 3 * * *', 'select public.retention_cleanup()');
 exception when others then raise notice 'pg_cron not available: run select retention_cleanup() daily from the admin tools.'; end $$;
 
+-- 6b. create_booking, now carrying the appointment time and an optional map point -------------------------------------
+create or replace function public.create_booking(p_items jsonb, p_shared jsonb, p_request_key uuid default null)
+returns uuid language plpgsql security invoker set search_path = public as $$
+declare bid uuid; it jsonb; i int := 0; other boolean; kind text; n int; sched timestamptz;
+begin
+  if auth.uid() is null then raise exception 'Sign in to book.'; end if;
+  if p_request_key is not null then
+    select id into bid from bookings where customer_id = auth.uid() and client_request_id = p_request_key;
+    if bid is not null then return bid; end if;
+  end if;
+  if jsonb_typeof(p_items) <> 'array' then raise exception 'Add at least one task.'; end if;
+  n := jsonb_array_length(p_items);
+  if n not between 1 and 10 then raise exception 'A booking holds between 1 and 10 tasks.'; end if;
+  other := coalesce(p_shared ->> 'for_whom', 'self') = 'other';
+  if other and coalesce((p_shared ->> 'recipient_consent')::boolean, false) is not true then
+    raise exception 'Please confirm that the person you are booking for knows and agrees.';
+  end if;
+  if other and coalesce(trim(p_shared ->> 'recipient_name'), '') = '' then
+    raise exception 'Add the name of the person you are booking for.';
+  end if;
+  insert into bookings (customer_id, for_whom, recipient_name, recipient_relation, recipient_consent_at, share_updates,
+                        authorized_contact_name, payer, location, client_request_id)
+  values (auth.uid(), case when other then 'other' else 'self' end, nullif(trim(p_shared ->> 'recipient_name'), ''),
+          nullif(trim(p_shared ->> 'recipient_relation'), ''), case when other then now() end,
+          coalesce((p_shared ->> 'share_updates')::boolean, false), nullif(trim(p_shared ->> 'authorized_contact_name'), ''),
+          coalesce(nullif(p_shared ->> 'payer', ''), 'self'), nullif(trim(p_shared ->> 'location'), ''), p_request_key)
+  returning id into bid;
+  for it in select * from jsonb_array_elements(p_items) loop
+    i := i + 1;
+    kind := coalesce(it ->> 'schedule_kind', p_shared ->> 'schedule_kind', 'single_day');
+    sched := nullif(coalesce(it ->> 'scheduled_at', p_shared ->> 'scheduled_at'), '')::timestamptz;
+    insert into tasks (customer_id, booking_id, service_id, title, description, category, task_type, scheduled_for, scheduled_at, location, lat, lng,
+                       for_whom, recipient_name, recipient_relation, recipient_phone, answers, schedule_kind, schedule_plan)
+    values (auth.uid(), bid, nullif(it ->> 'service_id', '')::uuid, it ->> 'title', it ->> 'description',
+            coalesce(it ->> 'category', 'general'), case when it ->> 'task_type' = 'ongoing' then 'ongoing' else 'one-time' end,
+            coalesce(it ->> 'scheduled_for', p_shared ->> 'scheduled_for', 'Flexible'), sched,
+            coalesce(it ->> 'location', p_shared ->> 'location'),
+            nullif(coalesce(it ->> 'lat', p_shared ->> 'lat'), '')::numeric, nullif(coalesce(it ->> 'lng', p_shared ->> 'lng'), '')::numeric,
+            case when other then 'other' else 'self' end, nullif(trim(p_shared ->> 'recipient_name'), ''),
+            nullif(trim(p_shared ->> 'recipient_relation'), ''), nullif(trim(p_shared ->> 'recipient_phone'), ''),
+            coalesce(it -> 'answers', '{}'), kind, coalesce(it -> 'schedule_plan', p_shared -> 'schedule_plan'));
+  end loop;
+  return bid;
+end $$;
+
 -- 7. Who may call what ----------------------------------------------------------------------------------------------------------------------------
 select public.refresh_profile_grants();
 revoke execute on function public.pm_task_feed(int), public.claim_task(uuid), public.decline_feed_task(uuid, text), public.mark_arrived(uuid),

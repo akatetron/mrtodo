@@ -31,6 +31,10 @@ import AdminTeamScreen from '../screens/admin/AdminTeamScreen';
 import AdminCatalogueScreen from '../screens/admin/AdminCatalogueScreen';
 import AdminStandardsScreen from '../screens/admin/AdminStandardsScreen';
 import PmSkillsScreen from '../screens/PmSkillsScreen';
+import TodoPlusScreen from '../screens/TodoPlusScreen';
+import AdminEscalationsScreen from '../screens/admin/AdminEscalationsScreen';
+import AdminPlansScreen from '../screens/admin/AdminPlansScreen';
+import AdminOpsScreen from '../screens/admin/AdminOpsScreen';
 
 const AuthStack = createNativeStackNavigator();
 const CustomerStack = createNativeStackNavigator();
@@ -60,6 +64,7 @@ function CustomerNavigator() {
     <CustomerStack.Navigator screenOptions={screenOptions}>
       <CustomerStack.Screen name="Home" component={HomeScreen} options={{ title: 'Mr. Todo' }} />
       <CustomerStack.Screen name="TrackTask" component={TrackTaskScreen} options={{ title: 'Track task' }} />
+      <CustomerStack.Screen name="TodoPlus" component={TodoPlusScreen} options={{ title: 'Todo+' }} />
       <CustomerStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />
       <CustomerStack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
       <CustomerStack.Screen name="ReportProblem" component={ReportProblemScreen} options={{ title: 'Report a problem' }} />
@@ -97,6 +102,9 @@ function AdminNavigator() {
       <AdminStack.Screen name="AdminMoney" component={AdminMoneyScreen} options={{ title: 'Money' }} />
       <AdminStack.Screen name="AdminInsights" component={AdminInsightsScreen} options={{ title: 'Insights' }} />
       <AdminStack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} options={{ title: 'Broadcast' }} />
+      <AdminStack.Screen name="AdminEscalations" component={AdminEscalationsScreen} options={{ title: 'Escalations' }} />
+      <AdminStack.Screen name="AdminPlans" component={AdminPlansScreen} options={{ title: 'Todo+ plans' }} />
+      <AdminStack.Screen name="AdminOps" component={AdminOpsScreen} options={{ title: 'Operations' }} />
       <AdminStack.Screen name="AdminStandards" component={AdminStandardsScreen} options={{ title: 'Standards and specialists' }} />
       <AdminStack.Screen name="AdminCatalogue" component={AdminCatalogueScreen} options={{ title: 'Service catalogue' }} />
       <AdminStack.Screen name="AdminTeam" component={AdminTeamScreen} options={{ title: 'Admin team' }} />

@@ -7,6 +7,7 @@ import {
 } from '../data/store';
 import { useAuth } from '../lib/AuthContext';
 import NotificationBell from '../components/NotificationBell';
+import PmFeed from '../components/PmFeed';
 import { docExpiry, expiryText } from '../data/extras';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -40,6 +41,7 @@ export default function WorkerHomeScreen({ navigation }) {
         <View>
           <Text style={styles.small}>Signed in as</Text>
           <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{me.full_name}</Text>
+          {me.tier === 'gold' && <Badge label="Gold Tier · Premium Task Priority" tone="brass" style={{ marginTop: 4 }} />}
         </View>
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
           <NotificationBell navigation={navigation} />
@@ -84,6 +86,8 @@ export default function WorkerHomeScreen({ navigation }) {
           </View>
         </Pressable>
       ))}
+
+      {me.worker_status === 'approved' && <PmFeed gold={me.tier === 'gold'} onClaimed={(t) => navigation.navigate('WorkerJob', { taskId: t.id })} />}
 
       <View style={styles.statRow}>
         <Card style={{ flex: 1 }}>

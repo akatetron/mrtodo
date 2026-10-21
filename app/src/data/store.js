@@ -89,6 +89,9 @@ function mapTask(row, visits) {
     scheduleKind: row.schedule_kind || 'single_day',
     schedulePlan: row.schedule_plan || null,
     scopeVersion: row.scope_version || 1,
+    scheduledAt: row.scheduled_at || null,
+    arrivedAt: row.arrived_at || null,
+    escalatedAt: row.escalated_at || null,
     extraAmount: row.extra_amount == null ? 0 : Number(row.extra_amount),
     pmShareBps: row.pm_share_bps == null ? null : row.pm_share_bps,
     isPremium: !!row.is_premium,
@@ -431,6 +434,47 @@ export async function pmPublicProfile(workerId) {
   if (error) throw new Error(error.message);
   return data;
 }
+
+// ---- the PM feed, arrival, escalation -------------------------------------------------
+
+// Open tasks this PM may take right now (the database decides who sees what).
+export async function pmFeed() {
+  const { data, error } = await supabase.rpc('pm_task_feed', { p_limit: 30 });
+  if (error) return { items: [], unavailable: isMissingFeature(error) };
+  return { items: data || [], unavailable: false };
+}
+export const claimTask = (taskId) => rpc('claim_task', { p_task: taskId });
+export const declineFeedTask = async (taskId) => { await supabase.rpc('decline_feed_task', { p_task: taskId }); };
+export const markArrived = (taskId) => rpc('mark_arrived', { p_task: taskId });
+// Minutes late by the server's clock, or null when the Escalate button must stay hidden.
+export async function minutesLate(taskId) {
+  const { data, error } = await supabase.rpc('minutes_late', { p_task: taskId });
+  return error ? null : data;
+}
+export const escalateTask = (taskId, reason) => rpc('escalate_task', { p_task: taskId, p_reason: reason || null });
+
+// ---- Todo+ ---------------------------------------------------------------------------------
+
+export async function listPlans() {
+  const { data, error } = await supabase.from('subscription_plans').select('*').eq('active', true).order('name');
+  return { plans: error ? [] : data || [], unavailable: !!error && isMissingFeature(error) };
+}
+export async function mySubscriptions() {
+  const { data, error } = await supabase.from('subscriptions').select('*').order('created_at', { ascending: false });
+  return error ? [] : data || [];
+}
+export const startSubscription = async (plan, consent) => {
+  const { data, error } = await supabase.rpc('start_subscription', { p_plan: plan, p_consent: consent });
+  if (error) throw new Error(error.message);
+  return data;
+};
+// Asks the payment function for the provider's checkout link.
+export async function paymentLink(subscriptionId) {
+  const { data, error } = await supabase.functions.invoke('create-subscription', { body: { subscription_id: subscriptionId } });
+  if (error || !data?.payment_url) throw new Error('Payment is not switched on yet. Please try again later.');
+  return data.payment_url;
+}
+export const cancelSubscription = (id) => rpc('request_cancel_subscription', { p_subscription: id });
 
 // ---- admin actions (the database refuses all of these for non-admins) ------------
 
