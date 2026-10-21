@@ -163,7 +163,7 @@ export function GeneralRequestPanel({ onPress }) {
   );
 }
 
-export function FamilyBookingEntry({ onPress, active, onClear }) {
+export function FamilyBookingEntry({ onPress, active, onClear, name }) {
   return (
     <View style={s.family}>
       <View style={{ width: 96 }}><ServicePhoto photoKey="someone-else" icon="heart" index={1} ratio={1} radiusSize={radius.md} alt="" /></View>
@@ -171,7 +171,10 @@ export function FamilyBookingEntry({ onPress, active, onClear }) {
         <Text style={s.familyTitle} accessibilityRole="header">Arrange help for someone you care about</Text>
         <Text style={s.panelBody}>Book practical assistance for a family member or another person.</Text>
         {active ? (
-          <Pressable accessibilityRole="button" onPress={onClear} style={s.familyBtn}><AppIcon name="check" size={16} /><Text style={s.familyBtnText}>Booking for someone else · Undo</Text></Pressable>
+          <>
+          <Pressable accessibilityRole="button" onPress={onPress} style={s.familyBtn}><AppIcon name="check" size={16} /><Text style={s.familyBtnText}>{name ? `For ${name}` : 'Booking for someone else'} · Change</Text></Pressable>
+          <Pressable accessibilityRole="button" onPress={onClear} style={{ minHeight: 48, justifyContent: 'center' }}><Text style={s.familyBtnText}>Remove</Text></Pressable>
+          </>
         ) : (
           <Pressable accessibilityRole="button" onPress={onPress} style={s.familyBtn}><Text style={s.familyBtnText}>Book for someone else</Text></Pressable>
         )}

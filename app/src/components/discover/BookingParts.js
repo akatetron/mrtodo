@@ -1,7 +1,7 @@
-import React from 'react';
-import { View, Text, Pressable, Switch, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Pressable, Switch, StyleSheet, Modal, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { colors, spacing, radius, typo } from '../../theme';
-import { FieldLabel, Input } from '../UI';
+import { FieldLabel, Input, Button } from '../UI';
 import AppIcon from '../AppIcon';
 
 export function InlineValidationMessage({ children }) {
@@ -73,6 +73,54 @@ export function BookForSomeoneElseSection({ value, onChange, errors = {} }) {
   );
 }
 
+// Opens over the page, where the person already is. Saves who the booking is for, so the
+// wizard never asks again and nothing scrolls away.
+export function RecipientSheet({ visible, initial, onSave, onClose }) {
+  const [v, setV] = useState({ recipientName: '', recipientRelation: '', recipientPhone: '', consent: false });
+  const [errors, setErrors] = useState({});
+  React.useEffect(() => {
+    if (visible) { setV({ recipientName: initial.recipientName || '', recipientRelation: initial.recipientRelation || '', recipientPhone: initial.recipientPhone || '', consent: !!initial.consent }); setErrors({}); }
+  }, [visible]);
+  function save() {
+    const e = {};
+    if (!v.recipientName.trim()) e.recipientName = 'Add the name of the person you are booking for.';
+    if (!v.consent) e.consent = 'Please confirm that they know and agree.';
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    onSave({ ...v, recipientName: v.recipientName.trim(), forWhom: 'other' });
+  }
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.sheetWrap}>
+        <Pressable style={s.sheetScrim} onPress={onClose} accessibilityLabel="Close" accessibilityRole="button" />
+        <View style={s.sheet}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.lg }}>
+            <Text style={s.sectionTitle} accessibilityRole="header">Who is this for?</Text>
+            <Text style={s.note}>You are making the booking. They receive the help. We share only what the Personal Manager needs with them.</Text>
+            <View>
+              <FieldLabel>Their name</FieldLabel>
+              <Input value={v.recipientName} onChangeText={(x) => setV({ ...v, recipientName: x })} placeholder="e.g. Kamala Bai" accessibilityLabel="Name of the person you are booking for" />
+              <InlineValidationMessage>{errors.recipientName}</InlineValidationMessage>
+            </View>
+            <View>
+              <FieldLabel>Your relationship (optional)</FieldLabel>
+              <Input value={v.recipientRelation} onChangeText={(x) => setV({ ...v, recipientRelation: x })} placeholder="e.g. Mother" />
+            </View>
+            <View>
+              <FieldLabel>Their phone (optional)</FieldLabel>
+              <Input value={v.recipientPhone} onChangeText={(x) => setV({ ...v, recipientPhone: x })} keyboardType="phone-pad" placeholder="Optional" />
+            </View>
+            <Check checked={v.consent} onPress={() => setV({ ...v, consent: !v.consent })} label="They know about this booking and agree to a Personal Manager helping them." required />
+            <InlineValidationMessage>{errors.consent}</InlineValidationMessage>
+            <Button label="Save" onPress={save} />
+            <Button label="Cancel" variant="secondary" onPress={onClose} />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function Check({ checked, onPress, label, required }) {
   return (
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={onPress} style={s.check}>
@@ -83,6 +131,9 @@ function Check({ checked, onPress, label, required }) {
 }
 
 const s = StyleSheet.create({
+  sheetWrap: { flex: 1, justifyContent: 'flex-end' },
+  sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,36,39,0.45)' },
+  sheet: { backgroundColor: colors.card || '#FFFFFF', borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, maxHeight: '88%', width: '100%', maxWidth: 640, alignSelf: 'center' },
   invalid: { flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 6 },
   invalidText: { ...typo.meta, fontSize: 14, color: colors.danger, flex: 1 },
   seg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.border },

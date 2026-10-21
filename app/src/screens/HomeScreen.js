@@ -7,6 +7,7 @@ import { colors, spacing, radius, typo, pagePad, maxContentWidth } from '../them
 import { Badge } from '../components/UI';
 import AppIcon from '../components/AppIcon';
 import NotificationBell from '../components/NotificationBell';
+import { RecipientSheet } from '../components/discover/BookingParts';
 import { ServiceSearchField, ServiceListItem, EmptySearchState } from '../components/discover/Discover';
 import {
   ConciergeHeader, ConciergeIntroduction, DescribeTaskRow, ServiceCategorySection, LoadingPlaceholder, InlineErrorState,
@@ -26,6 +27,7 @@ export default function HomeScreen({ navigation }) {
   const { families, loaded, failed, reload } = useCatalogue();
   const draft = useBookingDraft();
   const [query, setQuery] = useState('');
+  const [sheet, setSheet] = useState(false);
   const scroller = useRef(null);
   const exploreY = useRef(0);
   const results = searchServices(families, query);
@@ -80,7 +82,7 @@ export default function HomeScreen({ navigation }) {
               {forSomeone && (
                 <View style={s.banner} accessibilityLiveRegion="polite">
                   <AppIcon name="heart" size={18} color={colors.accent} />
-                  <Text style={s.bannerText}>Booking for someone else. Choose a service below, or describe the task.</Text>
+                  <Text style={s.bannerText}>Booking for {draft.recipientName}. Choose a service below, or describe the task.</Text>
                 </View>
               )}
               {!loaded ? <><Text style={s.sectionHead} accessibilityRole="header">Explore ways we can help</Text><LoadingPlaceholder /></>
@@ -99,7 +101,7 @@ export default function HomeScreen({ navigation }) {
             <View style={{ marginTop: spacing.xxl }}><GeneralRequestPanel onPress={general} /></View>
 
             <View style={{ marginTop: spacing.xl }}>
-              <FamilyBookingEntry active={forSomeone} onPress={() => { patchDraft({ forWhom: 'other' }); scroller.current?.scrollTo({ y: Math.max(exploreY.current - 12, 0), animated: true }); }} onClear={() => patchDraft({ forWhom: 'self' })} />
+              <FamilyBookingEntry active={forSomeone} name={draft.recipientName} onPress={() => setSheet(true)} onClear={() => patchDraft({ forWhom: 'self', recipientName: '', recipientRelation: '', recipientPhone: '', consent: false })} />
             </View>
 
             <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TodoPlus')} style={s.plus}>
@@ -130,6 +132,7 @@ export default function HomeScreen({ navigation }) {
           </>
         )}
       </View>
+      <RecipientSheet visible={sheet} initial={draft} onClose={() => setSheet(false)} onSave={(v) => { patchDraft(v); setSheet(false); }} />
     </ScrollView>
   );
 }
