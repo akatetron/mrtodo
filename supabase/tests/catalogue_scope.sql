@@ -15,8 +15,8 @@ select chk((select count(*) from service_families) = 0, 'Personal Managers canno
 
 -- ============================================================ building a service
 :as_AD;
-select save_service_draft('wifi-setup', :'fam', 'general', jsonb_build_object(
-  'title', 'Wi-Fi setup', 'description', 'Get your Wi-Fi working again.',
+select save_service_draft('test-wifi-setup', :'fam', 'general', jsonb_build_object(
+  'title', 'Test Wi-Fi setup', 'description', 'Get your Wi-Fi working again.',
   'questions', jsonb_build_array(
      jsonb_build_object('id', 'router', 'type', 'single_choice', 'label', 'Do you have a router?', 'required', true, 'options', jsonb_build_array('Yes', 'No')),
      jsonb_build_object('id', 'router_model', 'type', 'short_text', 'label', 'Which router?', 'required', true, 'show_if', jsonb_build_object('question', 'router', 'equals', 'Yes')),
@@ -36,14 +36,14 @@ select save_service_draft('fixed-no-price', :'fam', 'general', jsonb_build_objec
 select expect_error(format($$select publish_service('%s')$$, :'svc_np'), 'a fixed price service needs an amount');
 
 select chk(publish_service(:'svc_wifi') = 1, 'a ready service publishes as version 1');
-select save_service_draft('phone-setup', :'fam', 'general', jsonb_build_object('title', 'Phone setup', 'description', 'Set up a new phone.',
+select save_service_draft('test-phone-setup', :'fam', 'general', jsonb_build_object('title', 'Test phone setup', 'description', 'Set up a new phone.',
   'duration_minutes', 60, 'pricing', jsonb_build_object('approach', 'fixed', 'price', 500, 'currency', 'INR'))) as svc_phone \gset
 select publish_service(:'svc_phone');
 select save_service_draft('draft-only', :'fam', 'general', jsonb_build_object('title', 'Draft only', 'description', 'Not published yet.',
   'pricing', jsonb_build_object('approach', 'manual_quote'))) as svc_draft \gset
 
 :as_C;
-select chk((select count(*) = 2 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s where f ->> 'key' = 'everyday-tech'),
+select chk((select count(*) = 2 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s where f ->> 'key' = 'everyday-tech' and s -> 'definition' ->> 'title' like 'Test%'),
            'customers see published services only (the draft is hidden)');
 select chk((select count(*) from catalogue_services) = 0, 'customers cannot read catalogue tables directly');
 :as_anon;
@@ -81,7 +81,7 @@ select chk((select review_state = 'needs_review' and est_cost is null and price_
 
 -- editing a service never rewrites an existing booking
 :as_AD;
-select save_service_draft('phone-setup', :'fam', 'general', jsonb_build_object('title', 'Phone setup', 'description', 'Set up a new phone.',
+select save_service_draft('test-phone-setup', :'fam', 'general', jsonb_build_object('title', 'Test phone setup', 'description', 'Set up a new phone.',
   'pricing', jsonb_build_object('approach', 'fixed', 'price', 900, 'currency', 'INR'))) as _x \gset
 select chk(publish_service(:'svc_phone') = 2, 'republishing creates version 2');
 select expect_error($$update catalogue_service_versions set definition = '{}'$$, 'a published version cannot be edited');
@@ -99,14 +99,14 @@ select chk((select t.est_cost = 500 from tasks t where id = :'t_phone'), 'pausin
 select chk((select count(*) from catalogue_services where status = 'archived') = 0, 'nothing archived yet');
 select set_service_status(:'svc_phone', 'archived');
 select chk((select count(*) from tasks where service_id = :'svc_phone') = 2, 'archiving keeps historical bookings');
-select duplicate_service(:'svc_wifi', 'wifi-setup-2') as svc_copy \gset
-select chk((select draft ->> 'title' = 'Wi-Fi setup' and status = 'draft' and current_version = 0 from catalogue_services where id = :'svc_copy'), 'a duplicated service starts as an unpublished draft');
+select duplicate_service(:'svc_wifi', 'test-wifi-setup-2') as svc_copy \gset
+select chk((select draft ->> 'title' = 'Test Wi-Fi setup' and status = 'draft' and current_version = 0 from catalogue_services where id = :'svc_copy'), 'a duplicated service starts as an unpublished draft');
 select reorder_services(array[:'svc_wifi'::uuid, :'svc_copy'::uuid]);
 select chk((select sort_order from catalogue_services where id = :'svc_wifi') < (select sort_order from catalogue_services where id = :'svc_copy'), 'services can be reordered');
 select chk((select count(*) from audit_log where action like 'catalogue.%') >= 6, 'catalogue changes are in the audit log');
 
 -- ============================================================ bookings with several tasks
-select save_service_draft('phone-setup', :'fam', 'general', jsonb_build_object('title', 'Phone setup', 'description', 'Set up a new phone.',
+select save_service_draft('test-phone-setup', :'fam', 'general', jsonb_build_object('title', 'Test phone setup', 'description', 'Set up a new phone.',
   'pricing', jsonb_build_object('approach', 'fixed', 'price', 500, 'currency', 'INR'))) as _y \gset
 select publish_service(:'svc_phone');
 select set_service_status(:'svc_phone', 'published');
