@@ -3,6 +3,7 @@
 // Every service shown comes from the published catalogue.
 import React, { useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, radius, typo, pagePad, maxContentWidth } from '../theme';
 import { Badge } from '../components/UI';
 import AppIcon from '../components/AppIcon';
@@ -27,6 +28,7 @@ export default function HomeScreen({ navigation }) {
   const { families, loaded, failed, reload } = useCatalogue();
   const draft = useBookingDraft();
   const [query, setQuery] = useState('');
+  const insets = useSafeAreaInsets();
   const [sheet, setSheet] = useState(false);
   const scroller = useRef(null);
   const exploreY = useRef(0);
@@ -36,7 +38,19 @@ export default function HomeScreen({ navigation }) {
   const general = () => navigation.navigate('Booking', { general: true });
   const forSomeone = draft.forWhom === 'other';
 
+  const clearRecipient = () => patchDraft({ forWhom: 'self', recipientName: '', recipientRelation: '', recipientPhone: '', consent: false });
+  const strip = forSomeone && !!draft.recipientName;
+
   return (
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
+    {strip && (
+      <View style={s.strip} accessibilityLiveRegion="polite">
+        <AppIcon name="heart" size={18} color={colors.accent} />
+        <Text style={s.stripText} numberOfLines={1}>Booking for {draft.recipientName}</Text>
+        <Pressable accessibilityRole="button" onPress={() => setSheet(true)} style={s.stripBtn}><Text style={s.stripBtnText}>Change</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={clearRecipient} style={s.stripBtn}><Text style={s.stripBtnText}>Remove</Text></Pressable>
+      </View>
+    )}
     <ScrollView ref={scroller} style={{ flex: 1, backgroundColor: colors.bg }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ alignItems: 'center', paddingBottom: 56 }}>
       <View style={{ width: '100%', maxWidth: maxContentWidth, paddingHorizontal: pad }}>
         <ConciergeHeader onAccount={() => navigation.navigate('Account')} right={<NotificationBell navigation={navigation} />} />
@@ -79,12 +93,6 @@ export default function HomeScreen({ navigation }) {
         ) : (
           <>
             <View style={{ marginTop: spacing.xxl }} onLayout={(e) => { exploreY.current = e.nativeEvent.layout.y; }}>
-              {forSomeone && (
-                <View style={s.banner} accessibilityLiveRegion="polite">
-                  <AppIcon name="heart" size={18} color={colors.accent} />
-                  <Text style={s.bannerText}>Booking for {draft.recipientName}. Choose a service below, or describe the task.</Text>
-                </View>
-              )}
               {!loaded ? <><Text style={s.sectionHead} accessibilityRole="header">Explore ways we can help</Text><LoadingPlaceholder /></>
                 : failed ? <InlineErrorState message="We couldn’t load our services. Check your connection and try again. You can still describe your task." onRetry={reload} />
                 : families.length ? (
@@ -101,7 +109,7 @@ export default function HomeScreen({ navigation }) {
             <View style={{ marginTop: spacing.xxl }}><GeneralRequestPanel onPress={general} /></View>
 
             <View style={{ marginTop: spacing.xl }}>
-              <FamilyBookingEntry active={forSomeone} name={draft.recipientName} onPress={() => setSheet(true)} onClear={() => patchDraft({ forWhom: 'self', recipientName: '', recipientRelation: '', recipientPhone: '', consent: false })} />
+              <FamilyBookingEntry active={forSomeone} name={draft.recipientName} onPress={() => setSheet(true)} onClear={clearRecipient} />
             </View>
 
             <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TodoPlus')} style={s.plus}>
@@ -132,8 +140,9 @@ export default function HomeScreen({ navigation }) {
           </>
         )}
       </View>
-      <RecipientSheet visible={sheet} initial={draft} onClose={() => setSheet(false)} onSave={(v) => { patchDraft(v); setSheet(false); }} />
+      <RecipientSheet visible={sheet} initial={draft} onClose={() => setSheet(false)} onSave={(v) => { patchDraft(v); setSheet(false); setTimeout(() => scroller.current?.scrollTo({ y: Math.max(exploreY.current - 12, 0), animated: true }), 250); }} />
     </ScrollView>
+    </View>
   );
 }
 
@@ -147,6 +156,10 @@ const s = StyleSheet.create({
   resumeSub: { ...typo.meta, color: colors.muted },
   resumeAction: { ...typo.button, color: colors.accent },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: radius.md, backgroundColor: colors.accentLight, marginBottom: spacing.lg },
+  strip: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 16, paddingRight: 4, minHeight: 52, backgroundColor: colors.accentLight, borderBottomWidth: 1, borderBottomColor: colors.border },
+  stripText: { flex: 1, ...typo.body, fontWeight: '700', color: colors.text },
+  stripBtn: { minHeight: 48, minWidth: 56, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  stripBtnText: { ...typo.body, fontWeight: '700', color: colors.accent },
   bannerText: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.text },
   plus: { marginTop: spacing.xl, flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 12, paddingHorizontal: 16, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   plusIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.brassLight, alignItems: 'center', justifyContent: 'center' },

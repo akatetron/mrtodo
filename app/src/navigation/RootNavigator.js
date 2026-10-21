@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, Pressable, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { colors } from '../theme';
@@ -36,8 +36,11 @@ import CategoryScreen from '../screens/CategoryScreen';
 import BookingScreen from '../screens/BookingScreen';
 import AdminEscalationsScreen from '../screens/admin/AdminEscalationsScreen';
 import AdminPlansScreen from '../screens/admin/AdminPlansScreen';
+import MyTasksScreen from '../screens/MyTasksScreen';
+import CustomerTabBar from '../components/CustomerTabBar';
 import AdminOpsScreen from '../screens/admin/AdminOpsScreen';
 
+const navRef = createNavigationContainerRef();
 const AuthStack = createNativeStackNavigator();
 const CustomerStack = createNativeStackNavigator();
 const WorkerStack = createNativeStackNavigator();
@@ -65,6 +68,7 @@ function CustomerNavigator() {
   return (
     <CustomerStack.Navigator screenOptions={screenOptions}>
       <CustomerStack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+      <CustomerStack.Screen name="MyTasks" component={MyTasksScreen} options={{ headerShown: false }} />
       <CustomerStack.Screen name="ServiceCategory" component={CategoryScreen} options={{ headerShown: false }} />
       <CustomerStack.Screen name="Booking" component={BookingScreen} options={{ headerShown: false }} />
       <CustomerStack.Screen name="TrackTask" component={TrackTaskScreen} options={{ title: 'Track task' }} />
@@ -127,12 +131,14 @@ function ApplyNavigator() {
 
 export default function RootNavigator() {
   const { loading, user, profile } = useAuth();
-  const [previewRole, setPreviewRole] = useState(null); // lets an admin peek at either view
+  const [previewRole, setPreviewRole] = useState(null);
+  const [route, setRoute] = useState('Home'); // lets an admin peek at either view
 
   // The "view as" choice belongs to one sign-in. Without this it outlived the
   // session, so signing in as a customer after an admin picked "PM view" showed
   // the Personal Manager app.
   useEffect(() => { setPreviewRole(null); }, [user?.id]);
+  useEffect(() => { setRoute('Home'); }, [user?.id, previewRole]);
 
   if (loading) {
     return (
@@ -172,9 +178,12 @@ export default function RootNavigator() {
   const role = profile.role === 'admin' ? (previewRole || 'admin') : profile.role;
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navRef} onStateChange={() => setRoute(navRef.getCurrentRoute()?.name || 'Home')}>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         {role === 'admin' ? <AdminNavigator key="admin" /> : role === 'worker' ? <WorkerNavigator key="worker" /> : <CustomerNavigator key="customer" />}
+        {role === 'customer' && route !== 'Booking' && (
+          <CustomerTabBar current={route} onGo={(n) => navRef.isReady() && navRef.resetRoot({ index: 0, routes: [{ name: n }] })} extraBottom={profile.role === 'admin'} />
+        )}
         {profile.role === 'admin' && (
           <View style={styles.switcher}>
             <Pressable onPress={() => setPreviewRole('admin')} style={[styles.switchBtn, role === 'admin' && styles.switchBtnActive]}>

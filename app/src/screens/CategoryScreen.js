@@ -2,6 +2,7 @@
 // published services, and a way to ask for something that is not listed.
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, radius, typo, pagePad, maxContentWidth } from '../theme';
 import { ScreenHeader, ServiceListItem } from '../components/discover/Discover';
 import { ServicePhoto, DescribeTaskRow, PriceOrQuoteSummary } from '../components/concierge/Concierge';
@@ -10,13 +11,14 @@ import { useCatalogue } from '../data/useCatalogue';
 export default function CategoryScreen({ navigation, route }) {
   const { familyId } = route.params;
   const { families, loaded } = useCatalogue();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const pad = pagePad(width);
   const family = families.find((f) => f.id === familyId);
   const index = Math.max(0, families.findIndex((f) => f.id === familyId));
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ alignItems: 'center', paddingBottom: 56 }}>
+    <ScrollView style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }} contentContainerStyle={{ alignItems: 'center', paddingBottom: 56 }}>
       <View style={{ width: '100%', maxWidth: maxContentWidth, paddingHorizontal: pad }}>
         <ScreenHeader title={family?.name || 'Services'} subtitle={family?.description} onBack={() => navigation.goBack()} />
         {family && (
