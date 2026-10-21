@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 MIG=../migrations
-SUITES=(security_and_flow.sql features.sql overhaul_core.sql)
+SUITES=(security_and_flow.sql features.sql overhaul_core.sql catalogue_scope.sql)
 
 apply() {   # apply <db> <file...>
   local db=$1; shift
