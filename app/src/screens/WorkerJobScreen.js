@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TextInput, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { Card, Badge, Button, FieldLabel, ErrorText, Input, Stars } from '../components/UI';
 import TaskPhotos from '../components/TaskPhotos';
+import { PmScopeChange } from '../components/ScopeChange';
 import {
   useTasks, getTask, catMeta, acceptTask, declineTask, startTask, logVisit, completeWithOtp, rateTask, COMPLETION_MESSAGES,
   visitsDone, STATUS_META, PM_SHARE, formatRating, initials,
@@ -104,6 +105,7 @@ export default function WorkerJobScreen({ route, navigation }) {
         </View>
       )}
 
+      <PmScopeChange t={t} />
       {t.status === 'in_progress' && <FinishTask t={t} />}
 
       {t.status === 'matched' && (

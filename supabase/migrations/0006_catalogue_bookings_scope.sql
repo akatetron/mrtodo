@@ -553,7 +553,7 @@ begin
     insert into tasks (customer_id, booking_id, service_id, title, description, category, task_type, scheduled_for, location,
                        for_whom, recipient_name, recipient_relation, recipient_phone, answers, schedule_kind, schedule_plan)
     values (auth.uid(), bid, nullif(it ->> 'service_id', '')::uuid, it ->> 'title', it ->> 'description',
-            coalesce(it ->> 'category', 'general'), 'one-time', coalesce(it ->> 'scheduled_for', p_shared ->> 'scheduled_for', 'Flexible'),
+            coalesce(it ->> 'category', 'general'), case when it ->> 'task_type' = 'ongoing' then 'ongoing' else 'one-time' end, coalesce(it ->> 'scheduled_for', p_shared ->> 'scheduled_for', 'Flexible'),
             coalesce(it ->> 'location', p_shared ->> 'location'),
             case when other then 'other' else 'self' end, nullif(trim(p_shared ->> 'recipient_name'), ''),
             nullif(trim(p_shared ->> 'recipient_relation'), ''), nullif(trim(p_shared ->> 'recipient_phone'), ''),

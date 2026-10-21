@@ -28,6 +28,7 @@ import AdminMoneyScreen from '../screens/admin/AdminMoneyScreen';
 import AdminInsightsScreen from '../screens/admin/AdminInsightsScreen';
 import AdminBroadcastScreen from '../screens/admin/AdminBroadcastScreen';
 import AdminTeamScreen from '../screens/admin/AdminTeamScreen';
+import AdminCatalogueScreen from '../screens/admin/AdminCatalogueScreen';
 
 const AuthStack = createNativeStackNavigator();
 const CustomerStack = createNativeStackNavigator();
@@ -93,6 +94,7 @@ function AdminNavigator() {
       <AdminStack.Screen name="AdminMoney" component={AdminMoneyScreen} options={{ title: 'Money' }} />
       <AdminStack.Screen name="AdminInsights" component={AdminInsightsScreen} options={{ title: 'Insights' }} />
       <AdminStack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} options={{ title: 'Broadcast' }} />
+      <AdminStack.Screen name="AdminCatalogue" component={AdminCatalogueScreen} options={{ title: 'Service catalogue' }} />
       <AdminStack.Screen name="AdminTeam" component={AdminTeamScreen} options={{ title: 'Admin team' }} />
     </AdminStack.Navigator>
   );
