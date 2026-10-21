@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { Card, Badge, Button, StatusTracker, FieldLabel, Stars, Input, ErrorText } from '../components/UI';
 import TaskPhotos from '../components/TaskPhotos';
 import { CustomerScopeChange } from '../components/ScopeChange';
+import { CustomerQuote } from '../components/QuoteFlow';
+import PmProfileCard from '../components/PmProfileCard';
 import {
   useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
-  priceSummary, confirmTaskPrice, issueCompletionCode,
+  priceSummary, confirmTaskPrice, issueCompletionCode, tasksNow as useTasksNow,
 } from '../data/store';
 
 const STATUS_COPY = {
@@ -82,8 +84,24 @@ export default function TrackTaskScreen({ route, navigation }) {
           <Text style={styles.statusCopy}>Check your notifications for our question.</Text>
         </Card>
       )}
+      {!!t.bookingId && (() => {
+        const siblings = useTasksNow().filter((x) => x.bookingId === t.bookingId);
+        return siblings.length > 1 ? (
+          <Card style={{ marginBottom: spacing.lg, gap: spacing.sm }}>
+            <FieldLabel>Part of a booking with {siblings.length} tasks</FieldLabel>
+            {siblings.map((s) => (
+              <Pressable key={s.id} accessibilityRole="button" onPress={() => navigation.navigate('TrackTask', { taskId: s.id })} style={styles.sibling}>
+                <Text style={{ flex: 1, fontSize: 15, fontWeight: s.id === t.id ? '800' : '600', color: colors.text }}>{s.title}</Text>
+                <Badge label={STATUS_META[s.status].label} tone={STATUS_META[s.status].tone} />
+              </Pressable>
+            ))}
+            <Text style={styles.statusCopy}>{siblings.filter((s) => s.status === 'completed').length} of {siblings.length} completed. Each task has its own price and status.</Text>
+          </Card>
+        ) : null;
+      })()}
       {t.scheduleKind === 'multi_day' && <Badge label="Runs over several days" tone="brass" style={{ marginBottom: spacing.md }} />}
       <CustomerScopeChange t={t} />
+      <CustomerQuote t={t} />
       <PriceCard t={t} />
 
       {t.taskType === 'ongoing' && t.status !== 'requested' && (
@@ -134,6 +152,7 @@ export default function TrackTaskScreen({ route, navigation }) {
               </Text>
             </View>
           </View>
+          <PmProfileCard workerId={t.assignedWorkerId} />
         </Card>
       )}
 
@@ -227,6 +246,7 @@ function CancelTask({ t }) {
 }
 
 const styles = StyleSheet.create({
+  sibling: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 },
   h1: { fontSize: 21, fontWeight: '800', color: colors.text },
   h2: { fontSize: 15, fontWeight: '700', color: colors.text },

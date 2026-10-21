@@ -44,6 +44,7 @@ export default function AdminMoreScreen({ navigation }) {
     { icon: '📈', title: 'Insights', sub: 'Demand by category and area, and where to recruit', route: 'AdminInsights' },
     { icon: '💰', title: 'Money', sub: 'Job value, platform share and what Personal Managers are owed', route: 'AdminMoney', superOnly: true },
     { icon: '📣', title: 'Broadcast', sub: 'Send a message to everyone, or just one group', route: 'AdminBroadcast', superOnly: true },
+    { icon: '🎓', title: 'Standards and specialists', sub: 'Skills tests, qualified specialists', route: 'AdminStandards' },
     { icon: '🧰', title: 'Service catalogue', sub: 'Add and change the services customers can book', route: 'AdminCatalogue' },
     { icon: '🛡', title: 'Admin team', sub: 'Who can do what', route: 'AdminTeam' },
   ];

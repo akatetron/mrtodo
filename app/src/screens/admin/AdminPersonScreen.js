@@ -5,6 +5,7 @@ import { colors, spacing } from '../../theme';
 import { Card, Badge, FieldLabel, ErrorText } from '../../components/UI';
 import { useAuth } from '../../lib/AuthContext';
 import AdminContact from '../../components/AdminContact';
+import QualificationsPanel from '../../components/QualificationsPanel';
 import { useTasks, catMeta, STATUS_META, initials, formatRating, timeAgo } from '../../data/store';
 import { expiryText, docExpiry } from '../../data/extras';
 import { getProfile, listWorkerDocs, pmReliability, useLiveQuery, isSuperAdmin } from '../../data/adminData';
@@ -64,6 +65,7 @@ export default function AdminPersonScreen({ route, navigation }) {
         <Stat label="Cancelled" value={cancelled} />
       </View>
 
+      {isPm && <QualificationsPanel workerId={p.id} canEdit={superAdmin} />}
       {isPm && (
         <Card style={{ gap: 6 }}>
           <Text style={styles.h2}>Reliability</Text>

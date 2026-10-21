@@ -29,6 +29,8 @@ import AdminInsightsScreen from '../screens/admin/AdminInsightsScreen';
 import AdminBroadcastScreen from '../screens/admin/AdminBroadcastScreen';
 import AdminTeamScreen from '../screens/admin/AdminTeamScreen';
 import AdminCatalogueScreen from '../screens/admin/AdminCatalogueScreen';
+import AdminStandardsScreen from '../screens/admin/AdminStandardsScreen';
+import PmSkillsScreen from '../screens/PmSkillsScreen';
 
 const AuthStack = createNativeStackNavigator();
 const CustomerStack = createNativeStackNavigator();
@@ -71,6 +73,7 @@ function WorkerNavigator() {
       <WorkerStack.Screen name="WorkerHome" component={WorkerHomeScreen} options={{ title: 'Personal Manager' }} />
       <WorkerStack.Screen name="WorkerJob" component={WorkerJobScreen} options={{ title: 'Task details' }} />
       <WorkerStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />
+      <WorkerStack.Screen name="Skills" component={PmSkillsScreen} options={{ title: 'Your skills' }} />
       <WorkerStack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
       <WorkerStack.Screen name="ReportProblem" component={ReportProblemScreen} options={{ title: 'Report a problem' }} />
     </WorkerStack.Navigator>
@@ -94,6 +97,7 @@ function AdminNavigator() {
       <AdminStack.Screen name="AdminMoney" component={AdminMoneyScreen} options={{ title: 'Money' }} />
       <AdminStack.Screen name="AdminInsights" component={AdminInsightsScreen} options={{ title: 'Insights' }} />
       <AdminStack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} options={{ title: 'Broadcast' }} />
+      <AdminStack.Screen name="AdminStandards" component={AdminStandardsScreen} options={{ title: 'Standards and specialists' }} />
       <AdminStack.Screen name="AdminCatalogue" component={AdminCatalogueScreen} options={{ title: 'Service catalogue' }} />
       <AdminStack.Screen name="AdminTeam" component={AdminTeamScreen} options={{ title: 'Admin team' }} />
     </AdminStack.Navigator>

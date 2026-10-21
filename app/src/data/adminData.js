@@ -163,3 +163,21 @@ export const serviceReadiness = (id) => run(supabase.rpc('service_readiness', { 
 export const publishService = (id) => run(supabase.rpc('publish_service', { p_service: id }));
 export const setServiceStatus = (id, status) => run(supabase.rpc('set_service_status', { p_service: id, p_status: status }));
 export const duplicateService = (id, newKey) => run(supabase.rpc('duplicate_service', { p_service: id, p_new_key: newKey }));
+
+// ---- qualifications, interviews, assessments, specialists --------------------------------
+export const setPmQualification = (worker, skill, status, level = 1, source = 'interview', expiresAt = null, note = null) =>
+  run(supabase.rpc('set_pm_qualification', { p_worker: worker, p_skill: skill, p_status: status, p_level: level, p_source: source, p_expires_at: expiresAt, p_note: note }));
+export const recordInterview = (worker, outcome, notes) => run(supabase.rpc('record_interview', { p_worker: worker, p_outcome: outcome, p_notes: notes || null }));
+export const listInterviews = (worker) => run(supabase.from('pm_interviews').select('*').eq('worker_id', worker).order('created_at', { ascending: false }));
+export const listAssessmentsAdmin = () => run(supabase.from('assessments').select('*').order('name'));
+export const saveAssessment = (a) => run(supabase.rpc('save_assessment', {
+  p_key: a.key, p_name: a.name, p_skill: a.skill, p_level: a.level || 1, p_questions: a.questions,
+  p_pass_percent: a.passPercent || 80, p_validity_days: a.validityDays || null, p_active: !!a.active,
+}));
+export const listSpecialists = () => run(supabase.from('specialists').select('*').order('name'));
+export const saveSpecialist = (s) => run(supabase.rpc('save_specialist', {
+  p_id: s.id || null, p_name: s.name, p_skill: s.skill, p_verified: !!s.verified, p_note: s.note || null, p_phone: s.phone || null, p_active: s.active !== false,
+}));
+export const listSpecialistJobs = (taskId) => run(supabase.from('task_specialist_jobs').select('*, specialist:specialist_id(name, skill_key, verified)').eq('task_id', taskId).order('created_at'));
+export const assignSpecialist = (task, specialist, note) => run(supabase.rpc('assign_specialist', { p_task: task, p_specialist: specialist, p_note: note || null }));
+export const setSpecialistJob = (job, status, note) => run(supabase.rpc('set_specialist_job', { p_job: job, p_status: status, p_scheduled_at: null, p_note: note || null }));
