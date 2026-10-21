@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { Card, Badge, Button, StatusTracker, FieldLabel, Stars, Input, ErrorText } from '../components/UI';
 import TaskPhotos from '../components/TaskPhotos';
+import { CustomerScopeChange } from '../components/ScopeChange';
 import {
   useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
   priceSummary, confirmTaskPrice, issueCompletionCode,
@@ -69,6 +70,20 @@ export default function TrackTaskScreen({ route, navigation }) {
         </View>
       </Card>
 
+      {t.reviewState === 'needs_review' && ['requested', 'matched'].includes(t.status) && (
+        <Card style={{ marginBottom: spacing.lg, gap: 4 }}>
+          <FieldLabel>Being reviewed</FieldLabel>
+          <Text style={styles.statusCopy}>Our team is looking at your request. This is not booked yet: we will set a price for you to confirm, or ask for anything we are missing.</Text>
+        </Card>
+      )}
+      {t.reviewState === 'clarification_needed' && (
+        <Card style={{ marginBottom: spacing.lg, gap: 4, borderColor: colors.brass, borderWidth: 2 }}>
+          <FieldLabel>We need a little more information</FieldLabel>
+          <Text style={styles.statusCopy}>Check your notifications for our question.</Text>
+        </Card>
+      )}
+      {t.scheduleKind === 'multi_day' && <Badge label="Runs over several days" tone="brass" style={{ marginBottom: spacing.md }} />}
+      <CustomerScopeChange t={t} />
       <PriceCard t={t} />
 
       {t.taskType === 'ongoing' && t.status !== 'requested' && (

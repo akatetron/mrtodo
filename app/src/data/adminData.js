@@ -143,3 +143,23 @@ export function areaOf(location) {
   const parts = String(location || '').split(',').map((p) => p.trim()).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : 'Unknown';
 }
+
+// ---- service catalogue (super admins edit; every admin can read) -------------------------
+
+export async function listCatalogueAdmin() {
+  const [families, services] = await Promise.all([
+    run(supabase.from('service_families').select('*').order('sort_order')),
+    run(supabase.from('catalogue_services').select('*').order('sort_order')),
+  ]);
+  return { families, services };
+}
+export const saveFamily = (f) => run(supabase.rpc('save_family', {
+  p_key: f.key, p_name: f.name, p_description: f.description || null, p_icon: f.icon || null, p_sort: f.sort ?? null,
+  p_status: f.status || 'draft', p_available: f.available !== false,
+}));
+export const saveServiceDraft = (key, familyId, category, definition) =>
+  run(supabase.rpc('save_service_draft', { p_key: key, p_family: familyId, p_category: category, p_definition: definition }));
+export const serviceReadiness = (id) => run(supabase.rpc('service_readiness', { p_service: id }));
+export const publishService = (id) => run(supabase.rpc('publish_service', { p_service: id }));
+export const setServiceStatus = (id, status) => run(supabase.rpc('set_service_status', { p_service: id, p_status: status }));
+export const duplicateService = (id, newKey) => run(supabase.rpc('duplicate_service', { p_service: id, p_new_key: newKey }));

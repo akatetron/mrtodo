@@ -5,6 +5,7 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../../theme';
 import { Card, Badge, Button, FieldLabel, Input, ErrorText, StatusTracker } from '../../components/UI';
 import TaskPhotos from '../../components/TaskPhotos';
+import { AdminScopeChange } from '../../components/ScopeChange';
 import {
   useTasks, getTask, catMeta, STATUS_META, shortId, initials, formatRating, timeAgo, visitsDone, runningTotal,
   PM_SHARE, assignTask, cancelTask, adminCompleteTask, approveTaskPrice, priceSummary, listShortlist, taskHistory, catMeta as cat,
@@ -84,6 +85,8 @@ export default function AdminTaskScreen({ route }) {
 
       <TaskPhotos taskId={t.id} canAdd={false} hideIfEmpty />
 
+      {t.reviewState === 'needs_review' && <Card><Text style={styles.hint}>Review needed: this request has no fixed price yet, or needs a specialist check.</Text></Card>}
+      <AdminScopeChange t={t} />
       {['requested', 'matched'].includes(t.status) && <PriceApproval t={t} />}
       {canAssign && t.priceStatus !== 'awaiting_approval' && <Shortlist t={t} />}
       {canAssign && t.priceStatus === 'awaiting_approval' && (

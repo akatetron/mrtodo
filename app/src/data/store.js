@@ -7,7 +7,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { supabase } from '../lib/supabase';
-import { isMissingFeature } from '../lib/errors';
+import { isMissingFeature, UPDATE_HINT } from '../lib/errors';
 
 export const CATEGORIES = [
   { id: 'handyman', label: 'Handyman', emoji: '🔧' },
@@ -81,6 +81,15 @@ function mapTask(row, visits) {
     priceStatus: row.price_status || 'confirmed',   // older databases have no price states: treat their tasks as settled
     priceSource: row.price_source || null,
     templateId: row.template_id || null,
+    bookingId: row.booking_id || null,
+    serviceId: row.service_id || null,
+    serviceVersion: row.service_version || null,
+    serviceSnapshot: row.service_snapshot || null,
+    reviewState: row.review_state || 'none',
+    scheduleKind: row.schedule_kind || 'single_day',
+    schedulePlan: row.schedule_plan || null,
+    scopeVersion: row.scope_version || 1,
+    extraAmount: row.extra_amount == null ? 0 : Number(row.extra_amount),
     pmShareBps: row.pm_share_bps == null ? null : row.pm_share_bps,
     isPremium: !!row.is_premium,
     routingMode: row.routing_mode || 'admin',
@@ -189,6 +198,8 @@ export function getTask(id) {
   return tasks.find((t) => t.id === id) || null;
 }
 
+export function tasksNow() { return tasks; }
+
 export function myTasks(customerId) {
   return tasks.filter((t) => t.customerId === customerId);
 }
@@ -206,7 +217,7 @@ async function rpc(name, args) {
   return data;
 }
 
-function newRequestId() {
+export function newRequestId() {
   const hex = '0123456789abcdef';
   const pick = (n) => Array.from({ length: n }, () => hex[Math.floor(Math.random() * 16)]).join('');
   return `${pick(8)}-${pick(4)}-4${pick(3)}-a${pick(3)}-${pick(12)}`;
@@ -352,6 +363,40 @@ export async function adminContacts(ids) {
   return Object.fromEntries((data || []).map((r) => [r.id, { phone: r.phone, email: r.email }]));
 }
 
+// ---- catalogue, bookings and multi-day changes -----------------------------------
+
+// Published service families with their services. Empty until an admin publishes
+// some (or on an older database): the booking screen then shows the classic categories.
+export async function listCatalogue() {
+  const { data, error } = await supabase.rpc('catalogue');
+  return error || !Array.isArray(data) ? [] : data;
+}
+
+// One booking holding one or more tasks. `requestKey` stays the same across retries.
+export async function createBooking(items, shared, requestKey) {
+  const { data, error } = await supabase.rpc('create_booking', { p_items: items, p_shared: shared, p_request_key: requestKey || null });
+  if (error) throw new Error(isMissingFeature(error) ? UPDATE_HINT : error.message);
+  await refreshAll();
+  return data;
+}
+
+export async function bookingSummary(bookingId) {
+  const { data, error } = await supabase.rpc('booking_summary', { p_booking: bookingId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function listScopeChanges(taskId) {
+  const { data, error } = await supabase.from('task_scope_changes').select('*').eq('task_id', taskId).order('created_at', { ascending: false });
+  return error ? [] : data || [];
+}
+export const requestMultidayChange = (taskId, reason, visits, durationMinutes, priceImpact) =>
+  rpc('request_multiday_change', { p_task: taskId, p_reason: reason, p_visits: visits, p_duration_minutes: durationMinutes || null, p_price_impact: priceImpact ?? null });
+export const withdrawScopeChange = (changeId) => rpc('withdraw_scope_change', { p_change: changeId });
+export const decideScopeChangeAdmin = (changeId, approve, note, priceImpact) =>
+  rpc('decide_scope_change_admin', { p_change: changeId, p_approve: approve, p_note: note || null, p_price_impact: priceImpact ?? null });
+export const decideScopeChangeCustomer = (changeId, approve) => rpc('decide_scope_change_customer', { p_change: changeId, p_approve: approve });
+
 // ---- admin actions (the database refuses all of these for non-admins) ------------
 
 export const assignTask = (taskId, workerId) => rpc('assign_task', { p_task: taskId, p_worker: workerId });
@@ -471,6 +516,7 @@ export function pmEarning(t) {
 }
 
 export function catMeta(id) {
+  if (id === 'general') return { id, label: 'Something else', emoji: '✨' };
   return CATEGORIES.find((c) => c.id === id) || { label: id, emoji: '•' };
 }
 
