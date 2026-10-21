@@ -11,7 +11,7 @@ export function Badge({ label, tone = 'neutral', style }) {
     neutral: { bg: colors.surfaceAlt, fg: colors.muted },
     accent: { bg: colors.accentLight, fg: colors.accentDark },
     brass: { bg: colors.brassLight, fg: colors.brassDark },
-    success: { bg: colors.successLight, fg: colors.success },
+    success: { bg: colors.successLight, fg: colors.successText },
     danger: { bg: colors.dangerLight, fg: colors.danger },
   };
   const t = tones[tone] || tones.neutral;
@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chip: {
-    minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.pill,
+    minHeight: 48, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.pill,
     borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface,
   },
   chipOn: { borderColor: colors.accent, backgroundColor: colors.accentLight },

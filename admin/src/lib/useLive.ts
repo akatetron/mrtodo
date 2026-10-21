@@ -5,8 +5,8 @@ let channelSeq = 0;
 
 // Runs `load` and re-runs it whenever a row changes in any of `tables`
 // (Supabase realtime), so every admin page stays current without refreshing.
-export function useLive(load, tables, deps = []) {
-  const [data, setData] = useState(null);
+export function useLive(load: () => Promise<any>, tables: string[], deps: any[] = []): { data: any; error: string; reload: () => Promise<void> } {
+  const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -15,7 +15,7 @@ export function useLive(load, tables, deps = []) {
     try {
       setData(await loadRef.current());
       setError('');
-    } catch (e) {
+    } catch (e: any) {
       setError(e.message || String(e));
     }
   }, []);
@@ -38,7 +38,7 @@ export function useLive(load, tables, deps = []) {
 }
 
 // Throws on error so callers can show the database's message.
-export async function q(promise) {
+export async function q(promise: PromiseLike<{ data: any; error: { message: string } | null }>): Promise<any> {
   const { data, error } = await promise;
   if (error) throw new Error(error.message);
   return data;

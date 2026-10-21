@@ -83,5 +83,5 @@ const styles = StyleSheet.create({
   meta: { color: colors.muted, fontSize: 13 },
   warn: { fontWeight: '800', fontSize: 14, color: colors.brassDark },
   warnLine: { fontSize: 13, color: colors.text, lineHeight: 19 },
-  empty: { color: colors.faint, textAlign: 'center', padding: 28, fontSize: 13.5 },
+  empty: { color: colors.muted, textAlign: 'center', padding: 28, fontSize: 13.5 },
 });

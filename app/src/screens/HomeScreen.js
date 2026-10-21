@@ -4,6 +4,7 @@ import { colors, spacing, radius } from '../theme';
 import { Card, Button, FieldLabel, Badge, ErrorText, Input } from '../components/UI';
 import DynamicQuestions, { firstProblem } from '../components/DynamicQuestions';
 import { isValidDate } from '../data/extras';
+import { currentPoint } from '../lib/location';
 import { CATEGORIES, TEMPLATES, createTask, createBooking, listCatalogue, newRequestId, myTasks, tasksNow, useTasks, STATUS_META, catMeta, initials } from '../data/store';
 import { useAuth } from '../lib/AuthContext';
 import NotificationBell from '../components/NotificationBell';
@@ -36,6 +37,7 @@ export default function HomeScreen({ navigation, route }) {
   const [consent, setConsent] = useState(false);
   const [shareUpdates, setShareUpdates] = useState(false);
   const [contactName, setContactName] = useState('');
+  const [point, setPoint] = useState(null);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
   const [cart, setCart] = useState([]);                  // tasks already added to this booking
@@ -136,6 +138,7 @@ export default function HomeScreen({ navigation, route }) {
       try {
         const bookingId = await createBooking(items, {
           location: location.trim(), for_whom: forWhom, recipient_name: recipientName.trim(), recipient_relation: recipientRelation.trim(),
+          lat: point?.lat, lng: point?.lng,
           recipient_phone: recipientPhone.trim(), recipient_consent: forWhom === 'other' ? consent : false, share_updates: shareUpdates,
           authorized_contact_name: contactName.trim(),
         }, requestKey.current);
@@ -186,8 +189,8 @@ export default function HomeScreen({ navigation, route }) {
           <Text style={styles.hello}>Hi {first} 👋</Text>
           <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
             <NotificationBell navigation={navigation} />
-            <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityRole="button" accessibilityLabel="Account">
-              <Text style={styles.avatarText}>{initials(profile?.full_name)}</Text>
+            <Pressable onPress={() => navigation.navigate('Account')} style={[styles.avatar, { width: undefined, minWidth: 48, height: 48, paddingHorizontal: 14, borderRadius: 24 }]} accessibilityRole="button" accessibilityLabel="Account">
+              <Text style={styles.avatarText}>Account</Text>
             </Pressable>
           </View>
         </View>
@@ -358,7 +361,10 @@ export default function HomeScreen({ navigation, route }) {
             </View>
             <View>
               <FieldLabel>📍 Where?</FieldLabel>
-              <Input placeholder="Flat / building, area — e.g. Flat 4B, Kandivali West" value={location} onChangeText={setLocation} />
+              <Input placeholder="Flat / building, area — e.g. Flat 4B, Kandivali West" value={location} onChangeText={(v) => { setLocation(v); if (point) setPoint(null); }} />
+              <Button label={point ? '✓ Map point saved for matching' : 'Use my current location too'} variant="ghost" size="sm" style={{ marginTop: 8 }}
+                onPress={async () => { try { setError(''); setPoint(await currentPoint()); } catch (e) { setError(e.message); } }} />
+              <Text style={[styles.reviewLine, { marginTop: 4 }]}>Optional. It only helps nearby Personal Managers find your task. They see your area, never your street address, until they accept.</Text>
               {recentPlaces.length > 0 && (
                 <View style={[styles.chipRow, { marginTop: 8 }]}>
                   {recentPlaces.map((place) => (
@@ -473,7 +479,7 @@ const styles = StyleSheet.create({
   tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: spacing.md },
   tile: {
     width: '47.5%', minHeight: 120, alignItems: 'center', justifyContent: 'center', gap: 6, padding: spacing.md,
-    borderRadius: radius.lg, borderWidth: 2, borderColor: colors.accent, backgroundColor: '#E9F2EF',
+    borderRadius: radius.lg, borderWidth: 2, borderColor: colors.accent, backgroundColor: '#E4EEEC',
   },
   tileOn: { backgroundColor: colors.brassLight, borderColor: colors.brass },
   tileEmoji: { fontSize: 38 },
@@ -486,10 +492,10 @@ const styles = StyleSheet.create({
   rowLabel: { flex: 1, fontSize: 16, fontWeight: '700', color: colors.text },
   radio: { fontSize: 22, color: colors.accent },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface },
+  chip: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 16, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface },
   chipOn: { borderColor: colors.accent, backgroundColor: colors.accentLight },
   chipText: { fontSize: 15, fontWeight: '700', color: colors.muted },
-  otherBox: { backgroundColor: '#E9F2EF', borderRadius: radius.md, padding: spacing.md, gap: spacing.md },
+  otherBox: { backgroundColor: '#E4EEEC', borderRadius: radius.md, padding: spacing.md, gap: spacing.md },
   reviewTitle: { fontSize: 20, fontWeight: '800', color: colors.accentDark },
   reviewLine: { fontSize: 16, lineHeight: 23, color: colors.text },
   check: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', minHeight: 48 },

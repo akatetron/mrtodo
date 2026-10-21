@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
   h2: { fontSize: 19, fontWeight: '800', color: colors.text },
   title: { fontSize: 16, fontWeight: '700', color: colors.text, flex: 1 },
   hint: { fontSize: 14, color: colors.muted, lineHeight: 20 },
-  ok: { fontSize: 15, color: colors.success, fontWeight: '700' },
+  ok: { fontSize: 15, color: colors.successText, fontWeight: '700' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   service: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm },

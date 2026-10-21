@@ -129,5 +129,5 @@ const styles = StyleSheet.create({
   docHead: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   doc: { width: '100%', height: 260, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
   link: { color: colors.accent, fontWeight: '700', fontSize: 13.5 },
-  ok: { color: colors.success, fontWeight: '700', fontSize: 13 },
+  ok: { color: colors.successText, fontWeight: '700', fontSize: 13 },
 });

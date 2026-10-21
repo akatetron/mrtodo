@@ -66,7 +66,7 @@ export default function AdminMoreScreen({ navigation }) {
                 <Text style={styles.sub}>{locked ? 'Super admins only' : r.sub}</Text>
               </View>
               {!!r.badge && <Badge label={String(r.badge)} tone="brass" />}
-              {!locked && <Text style={{ color: colors.faint, fontSize: 18 }}>›</Text>}
+              {!locked && <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>}
             </Card>
           </Pressable>
         );
@@ -91,5 +91,5 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   title: { fontWeight: '700', fontSize: 15, color: colors.text },
   sub: { color: colors.muted, fontSize: 12.5, lineHeight: 17 },
-  ok: { color: colors.success, fontWeight: '700', fontSize: 13, marginTop: spacing.sm },
+  ok: { color: colors.successText, fontWeight: '700', fontSize: 13, marginTop: spacing.sm },
 });

@@ -81,8 +81,8 @@ export default function AdminHomeScreen({ navigation }) {
             {attention > 0 && <View style={styles.toolsBadge}><Text style={styles.toolsBadgeText}>{attention}</Text></View>}
           </Pressable>
           <NotificationBell navigation={navigation} />
-          <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
-            <Text style={styles.avatarText}>{initials(profile?.full_name)}</Text>
+          <Pressable onPress={() => navigation.navigate('Account')} style={[styles.avatar, { width: undefined, minWidth: 48, height: 48, paddingHorizontal: 14, borderRadius: 24 }]} accessibilityLabel="Account">
+            <Text style={styles.avatarText}>Account</Text>
           </Pressable>
         </View>
       </View>
@@ -177,5 +177,5 @@ const styles = StyleSheet.create({
   title: { flex: 1, fontWeight: '700', fontSize: 14.5, color: colors.text },
   meta: { color: colors.muted, fontSize: 12.5, flexShrink: 1 },
   rowBottom: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  empty: { color: colors.faint, textAlign: 'center', padding: 28, fontSize: 13.5 },
+  empty: { color: colors.muted, textAlign: 'center', padding: 28, fontSize: 13.5 },
 });

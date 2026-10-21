@@ -10,11 +10,17 @@ import PersonalManagers from './pages/PersonalManagers';
 import AuditLog from './pages/AuditLog';
 import Escalations from './pages/Escalations';
 import Operations from './pages/Operations';
+import Catalogue from './pages/Catalogue';
+import Plans from './pages/Plans';
+import Standards from './pages/Standards';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', component: Overview },
   { id: 'tasks', label: 'Task queue', component: Tasks },
   { id: 'escalations', label: 'Escalations', component: Escalations },
+  { id: 'catalogue', label: 'Service catalogue', component: Catalogue },
+  { id: 'standards', label: 'Standards', component: Standards },
+  { id: 'plans', label: 'Todo+ plans', component: Plans },
   { id: 'applications', label: 'Applications', component: Applications },
   { id: 'pms', label: 'Personal Managers', component: PersonalManagers },
   { id: 'ops', label: 'Operations', component: Operations },
@@ -27,8 +33,8 @@ function pageFromHash() {
 }
 
 export default function App() {
-  const [session, setSession] = useState(undefined);
-  const [profile, setProfile] = useState(null);
+  const [session, setSession] = useState<any>(undefined);
+  const [profile, setProfile] = useState<any>(null);
   const [denied, setDenied] = useState('');
 
   useEffect(() => {
@@ -62,7 +68,7 @@ function Shell({ profile }) {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
-  const go = (id, sub) => { window.location.hash = sub ? `${id}/${sub}` : id; };
+  const go = (id: string, sub?: string) => { window.location.hash = sub ? `${id}/${sub}` : id; };
 
   const { data: counts } = useLive(async () => {
     const [queue, apps] = await Promise.all([
@@ -72,13 +78,14 @@ function Shell({ profile }) {
     return { tasks: queue, applications: apps };
   }, ['tasks', 'profiles']);
 
-  const Page = PAGES.find((p) => p.id === page).component;
+  const Page: any = PAGES.find((p) => p.id === page)!.component;
   return (
     <div className="shell">
-      <nav className="sidebar">
+      <a className="skip-link" href="#main">Skip to content</a>
+      <nav className="sidebar" aria-label="Main">
         <div className="brand">Mr. Todo<small>Admin</small></div>
         {PAGES.map((p) => (
-          <button key={p.id} className={`nav-btn ${page === p.id ? 'active' : ''}`} onClick={() => go(p.id)}>
+          <button key={p.id} aria-current={page === p.id ? 'page' : undefined} className={`nav-btn ${page === p.id ? 'active' : ''}`} onClick={() => go(p.id)}>
             {p.label}
             {!!counts?.[p.id] && <span className="nav-count">{counts[p.id]}</span>}
           </button>
@@ -89,7 +96,7 @@ function Shell({ profile }) {
           <button className="btn ghost sm" onClick={() => supabase.auth.signOut()}>Sign out</button>
         </div>
       </nav>
-      <main className="main">
+      <main className="main" id="main" tabIndex={-1}>
         <Page go={go} profile={profile} />
       </main>
     </div>

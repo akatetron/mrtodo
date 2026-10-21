@@ -45,8 +45,8 @@ export default function WorkerHomeScreen({ navigation }) {
         </View>
         <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
           <NotificationBell navigation={navigation} />
-          <Pressable onPress={() => navigation.navigate('Account')} style={styles.avatar} accessibilityLabel="Account">
-            <Text style={styles.avatarText}>{initials(me.full_name)}</Text>
+          <Pressable onPress={() => navigation.navigate('Account')} style={[styles.avatar, { width: undefined, minWidth: 48, height: 48, paddingHorizontal: 14, borderRadius: 24 }]} accessibilityLabel="Account">
+            <Text style={styles.avatarText}>Account</Text>
           </Pressable>
         </View>
       </View>
@@ -153,5 +153,5 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12, color: colors.muted, fontWeight: '600' },
   statVal: { fontWeight: '800', fontSize: 16, marginTop: 3, color: colors.text },
   h2: { fontSize: 14.5, fontWeight: '700', marginBottom: 10, color: colors.text },
-  emptyText: { color: colors.faint, fontSize: 13.5 },
+  emptyText: { color: colors.muted, fontSize: 13.5 },
 });

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useLive, q } from '../lib/useLive';
 import { TASK_STATUS, catMeta, shortId, money, when, rating, PM_SHARE } from '../lib/constants';
 import { Contact, Field, Badge, Avatar, ErrorBox, useAction } from '../components/ui';
+import { EscalationBanner, ScopePanel, QuotePanel, SpecialistPanel } from './TaskPanels';
 
 const FILTERS = [
   { id: 'queue', label: 'Needs a PM', match: (t) => t.status === 'requested' },
@@ -59,42 +60,33 @@ export default function Tasks() {
       </div>
       <ErrorBox>{error}</ErrorBox>
 
-      <div className="split">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Task</th><th>Customer</th><th>Where / when</th><th>Value</th><th>Status</th><th>Posted</th></tr>
-            </thead>
-            <tbody>
-              {ordered.map((t) => {
-                const open = !['completed', 'cancelled'].includes(t.status);
-                const escalated = open && !!t.escalated_at;
-                const waited = t.status === 'requested' ? Math.floor((Date.now() - new Date(t.created_at).getTime()) / 60000) : 0;
-                const warn = !escalated && waited > 15;
-                return (
-                <tr key={t.id} className={`clickable ${t.id === selectedId ? 'selected' : ''} ${escalated ? 'sla-red' : warn ? 'sla-brass' : ''}`} onClick={() => select(t.id)}>
-                  <td>
-                    {escalated && <Badge tone="danger">Customer escalated</Badge>}
-                    {warn && <Badge tone="brass">SLA warning · waiting {waited} min</Badge>}
-                    {t.status === 'requested' && !escalated && !warn && <Badge tone="neutral">Waiting for assignment</Badge>}
-                    {t.price_status === 'awaiting_approval' && <Badge tone="brass">Needs a price</Badge>}
-                    <div className="t-title">{catMeta(t.category).emoji} {t.title}</div>
-                    <div className="faint small">{shortId(t.id)} · {catMeta(t.category).label}{t.task_type === 'ongoing' ? ' · ongoing' : ''}</div>
-                  </td>
-                  <td>{t.customer?.full_name}</td>
-                  <td><div>{t.location}</div><div className="faint small">{t.scheduled_for || 'Flexible'}</div></td>
-                  <td>{t.task_type === 'ongoing' ? `${money(t.rate_per_day)}/day` : money(t.est_cost)}</td>
-                  <td>
-                    <Badge tone={TASK_STATUS[t.status].tone}>{TASK_STATUS[t.status].label}</Badge>
-                    {t.worker && <div className="faint small" style={{ marginTop: 4 }}>{t.worker.full_name}</div>}
-                  </td>
-                  <td className="small muted">{when(t.created_at)}</td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {tasks && !ordered.length && <div className="empty">{filter === 'queue' ? 'Queue is clear — every task has a Personal Manager. 🎉' : 'No tasks here.'}</div>}
+      <div className="split3070">
+        <div className="queue" role="list" aria-label="Task queue">
+          {ordered.map((t) => {
+            const open = !['completed', 'cancelled'].includes(t.status);
+            const escalated = open && !!t.escalated_at;
+            const waited = t.status === 'requested' ? Math.floor((Date.now() - new Date(t.created_at).getTime()) / 60000) : 0;
+            const warn = !escalated && waited > 15;
+            return (
+              <button key={t.id} role="listitem" aria-current={t.id === selectedId} className={`qcard ${t.id === selectedId ? 'selected' : ''} ${escalated ? 'sla-red' : warn ? 'sla-brass' : ''}`} onClick={() => select(t.id)}>
+                <div className="row" style={{ gap: 4 }}>
+                  {escalated && <Badge tone="danger">Escalated</Badge>}
+                  {warn && <Badge tone="brass">SLA warning · {waited} min</Badge>}
+                  {t.status === 'requested' && !escalated && !warn && <Badge>Waiting for assignment</Badge>}
+                  {t.price_status === 'awaiting_approval' && <Badge tone="brass">Needs a price</Badge>}
+                  {t.review_state === 'needs_review' && <Badge tone="brass">Needs review</Badge>}
+                </div>
+                <div className="t-title">{catMeta(t.category).emoji} {t.title}</div>
+                <div className="small muted">{shortId(t.id)} · {t.customer?.full_name} · {t.location}</div>
+                <div className="row spread small">
+                  <Badge tone={TASK_STATUS[t.status].tone}>{TASK_STATUS[t.status].label}</Badge>
+                  <span>{t.price_status === 'awaiting_approval' ? 'No price yet' : t.task_type === 'ongoing' ? `${money(t.rate_per_day)}/day` : money(t.est_cost)}</span>
+                  <span className="muted">{when(t.created_at)}</span>
+                </div>
+              </button>
+            );
+          })}
+          {tasks && !ordered.length && <div className="empty">{filter === 'queue' ? 'Queue is clear — every task has a Personal Manager.' : 'No tasks here.'}</div>}
           {!tasks && !error && <div className="empty">Loading…</div>}
         </div>
 
@@ -154,6 +146,11 @@ function TaskDetail({ t }) {
         </div>
       )}
 
+      {t.review_state === 'needs_review' && <div className="card small"><Badge tone="brass">Needs review</Badge> This request has no fixed price yet, or needs a specialist check.</div>}
+      <EscalationBanner t={t} />
+      <ScopePanel t={t} />
+      <QuotePanel t={t} />
+      <SpecialistPanel t={t} />
       {['requested', 'matched'].includes(t.status) && <PriceApproval t={t} />}
       {canAssign && t.price_status !== 'awaiting_approval' && <Shortlist t={t} />}
       {canAssign && t.price_status === 'awaiting_approval' && <div className="card small muted">Approve a price above before assigning a Personal Manager.</div>}
@@ -164,7 +161,7 @@ function TaskDetail({ t }) {
   );
 }
 
-function Info({ label, value, sub }) {
+function Info({ label, value, sub }: { label: string; value: any; sub?: any }) {
   return (
     <div>
       <div className="label">{label}</div>
@@ -231,12 +228,14 @@ function Shortlist({ t }) {
                 {!w.area_match && w.service_area && <Badge>📍 {w.service_area}</Badge>}
                 {!w.online && <Badge tone="brass">Unavailable</Badge>}
                 {w.declined && <Badge tone="danger">Declined this</Badge>}
+                {w.tier === 'gold' && <Badge tone="brass">Gold Tier</Badge>}
+                {w.eligible === false && <Badge tone="danger">Not verified for: {(w.missing_skills || []).join(', ')}</Badge>}
                 {w.active_jobs > 0 && <Badge>{w.active_jobs} active</Badge>}
               </div>
             </div>
             {isCurrent
               ? <Badge tone="accent">Offered</Badge>
-              : <button className="btn sm" disabled={busy} onClick={() => run(() => q(supabase.rpc('assign_task', { p_task: t.id, p_worker: w.id })))}>Assign</button>}
+              : <button className="btn sm" disabled={busy || w.eligible === false} onClick={() => run(() => q(supabase.rpc('assign_task', { p_task: t.id, p_worker: w.id })))}>{w.eligible === false ? 'Not qualified' : 'Assign'}</button>}
           </div>
         );
       })}

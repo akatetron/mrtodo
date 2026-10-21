@@ -18,5 +18,9 @@ adviser to confirm; none is legal advice.
 | Delivered/dead push notifications | 30 days | Troubleshooting |
 | Rate-limit counters | 2 days | Abuse prevention |
 
-Not implemented: deleting a person's account and data on request. That needs a
-decision on what must be kept for billing and disputes first.
+Account deletion (Account → Delete my account): the person's name, contact details, documents,
+skills, devices, notifications, saved locations and any recipient they booked for are erased at
+once, and their sign-in is disabled. Blocked while they have open tasks or a live Todo+ plan.
+Tasks, prices, quotes, ratings, task photos and the audit log are kept, without the person's name,
+for billing and disputes. Task photos may still show a place or a person: decide whether to
+remove photos after a set time.

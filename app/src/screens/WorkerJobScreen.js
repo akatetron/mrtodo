@@ -9,6 +9,8 @@ import SwipeToConfirm from '../components/SwipeToConfirm';
 import OtpPinInput from '../components/OtpPinInput';
 import InAppCallButton from '../components/InAppCallButton';
 import { markArrived } from '../data/store';
+import { mapsUrl } from '../lib/location';
+import { Linking } from 'react-native';
 import {
   useTasks, getTask, catMeta, acceptTask, declineTask, startTask, logVisit, completeWithOtp, rateTask, COMPLETION_MESSAGES,
   visitsDone, STATUS_META, PM_SHARE, formatRating, initials,
@@ -99,7 +101,7 @@ export default function WorkerJobScreen({ route, navigation }) {
                 </Text>
               ))
             ) : (
-              <Text style={{ color: colors.faint, fontSize: 13 }}>No visits logged yet.</Text>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>No visits logged yet.</Text>
             )}
           </View>
           {t.status === 'in_progress' && <LogVisit t={t} />}
@@ -114,6 +116,7 @@ export default function WorkerJobScreen({ route, navigation }) {
 
       {['assigned', 'in_progress'].includes(t.status) && (
         <Card style={{ marginBottom: spacing.md, gap: spacing.sm }}>
+          <Button label="🧭 Navigate" variant="ghost" onPress={() => Linking.openURL(mapsUrl(t.location)).catch(() => setError('Could not open a maps app. The address is shown above.'))} />
           {!t.arrivedAt ? <Button label="I have arrived" onPress={() => run(() => markArrived(t.id))} disabled={busy} /> : <Badge label="Arrival recorded" tone="success" />}
           <InAppCallButton t={t} />
         </Card>

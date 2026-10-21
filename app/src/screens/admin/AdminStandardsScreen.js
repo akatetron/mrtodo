@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
   h2: { fontSize: 18, fontWeight: '800', color: colors.text },
   name: { fontSize: 16, fontWeight: '700', color: colors.text },
   hint: { fontSize: 14, color: colors.muted, lineHeight: 20 },
-  ok: { fontSize: 15, color: colors.success, fontWeight: '700' },
+  ok: { fontSize: 15, color: colors.successText, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   q: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },

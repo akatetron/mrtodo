@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
   unread: { borderColor: colors.accent, backgroundColor: colors.accentLight },
   title: { fontWeight: '700', fontSize: 14, color: colors.text },
   body: { color: colors.muted, fontSize: 13, lineHeight: 18 },
-  time: { color: colors.faint, fontSize: 12, marginTop: 2 },
+  time: { color: colors.muted, fontSize: 12, marginTop: 2 },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, marginTop: 6 },
-  empty: { color: colors.faint, textAlign: 'center', padding: 28, fontSize: 13.5, lineHeight: 20 },
+  empty: { color: colors.muted, textAlign: 'center', padding: 28, fontSize: 13.5, lineHeight: 20 },
 });
