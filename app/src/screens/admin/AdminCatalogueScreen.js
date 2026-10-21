@@ -9,7 +9,7 @@ import { Card, Badge, Button, FieldLabel, Input, ErrorText, Chip } from '../../c
 import DynamicQuestions from '../../components/DynamicQuestions';
 import { useAuth } from '../../lib/AuthContext';
 import {
-  listCatalogueAdmin, saveFamily, saveServiceDraft, serviceReadiness, publishService, setServiceStatus, duplicateService,
+  listCatalogueAdmin, saveFamily, setFamilyImage, saveServiceDraft, serviceReadiness, publishService, setServiceStatus, duplicateService,
   isSuperAdmin, useLiveQuery,
 } from '../../data/adminData';
 import { CATEGORIES, listSkills } from '../../data/store';
@@ -55,6 +55,7 @@ export default function AdminCatalogueScreen({ navigation }) {
                 <Button size="sm" label="Add a service" onPress={() => setEditing({ familyId: f.id })} />
               </View>
             )}
+            {superAdmin && <FamilyImage family={f} onError={setErr} onDone={(m) => setMessage(m)} />}
             {services.map((s) => (
               <View key={s.id} style={styles.service}>
                 <View style={styles.rowBetween}>
@@ -78,6 +79,19 @@ export default function AdminCatalogueScreen({ navigation }) {
         );
       })}
     </ScrollView>
+  );
+}
+
+function FamilyImage({ family, onError, onDone }) {
+  const [url, setUrl] = useState(family.image_url || '');
+  const [alt, setAlt] = useState(family.image_alt || '');
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <FieldLabel>Photo link for this category (https, optional)</FieldLabel>
+      <Input value={url} onChangeText={setUrl} autoCapitalize="none" placeholder="https://…" />
+      <Input value={alt} onChangeText={setAlt} placeholder="Describe the picture for screen readers" />
+      <Button size="sm" variant="ghost" label="Save photo link" onPress={async () => { onError(''); try { await setFamilyImage(family.id, url.trim(), alt.trim()); onDone('Photo link saved. If it cannot load, customers see the built-in artwork.'); } catch (e) { onError(e.message); } }} />
+    </View>
   );
 }
 

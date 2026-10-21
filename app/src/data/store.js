@@ -369,6 +369,14 @@ export async function listCatalogue() {
   return error || !Array.isArray(data) ? [] : data;
 }
 
+// Same, but says whether the request itself failed (offline, server error) as opposed to the
+// database simply not having a catalogue yet.
+export async function fetchCatalogue() {
+  const { data, error } = await supabase.rpc('catalogue');
+  if (error) return { families: [], failed: !isMissingFeature(error) };
+  return { families: Array.isArray(data) ? data : [], failed: false };
+}
+
 // One booking holding one or more tasks. `requestKey` stays the same across retries.
 export async function createBooking(items, shared, requestKey) {
   const { data, error } = await supabase.rpc('create_booking', { p_items: items, p_shared: shared, p_request_key: requestKey || null });

@@ -1,16 +1,16 @@
 // The published catalogue, shared by the discover, category and booking screens.
 // Always comes from the database; nothing here is a list of services.
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { listCatalogue } from './store';
+import { fetchCatalogue } from './store';
 
-let state = { families: [], loaded: false };
+let state = { families: [], loaded: false, failed: false };
 let inflight = null;
 const listeners = new Set();
 const emit = () => { state = { ...state }; listeners.forEach((l) => l()); };
 
 export function reloadCatalogue() {
   if (!inflight) {
-    inflight = listCatalogue().then((families) => { state = { families, loaded: true }; emit(); }).finally(() => { inflight = null; });
+    inflight = fetchCatalogue().then(({ families, failed }) => { state = { families: failed ? state.families : families, loaded: true, failed }; emit(); }).finally(() => { inflight = null; });
   }
   return inflight;
 }
@@ -20,7 +20,7 @@ export function useCatalogue() {
   useEffect(() => { reloadCatalogue(); }, []);
   const families = snap.families.filter((f) => f.services?.length > 0);
   const findService = (id) => { for (const f of families) { const s = f.services.find((x) => x.id === id); if (s) return { service: s, family: f }; } return null; };
-  return { families, loaded: snap.loaded, findService, reload: reloadCatalogue };
+  return { families, loaded: snap.loaded, failed: snap.failed, findService, reload: reloadCatalogue };
 }
 
 // Search over what is actually published: names, descriptions and keywords.

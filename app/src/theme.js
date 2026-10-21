@@ -35,11 +35,17 @@ export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 40
 // Horizontal page padding: 20, reduced to 16 on very narrow screens (see pagePad()).
 export const pagePad = (width) => (width < 360 ? 16 : 20);
 
-export const radius = { sm: 10, md: 12, lg: 16, pill: 999 };
+export const radius = { xs: 8, sm: 10, md: 12, lg: 16, xl: 24, pill: 999 };
+
+// Customer screens never stretch across a tablet or browser window.
+export const maxContentWidth = 640;
 
 // Type scale. Sizes follow the device's text-size setting; nothing is fixed-height.
 export const typo = {
+  hero: { fontSize: 32, lineHeight: 38, fontWeight: '700', letterSpacing: -0.6 },
   h1: { fontSize: 28, lineHeight: 34, fontWeight: '700', letterSpacing: -0.4 },
+  section: { fontSize: 22, lineHeight: 28, fontWeight: '700', letterSpacing: -0.2 },
+  featured: { fontSize: 20, lineHeight: 26, fontWeight: '700' },
   h2: { fontSize: 20, lineHeight: 26, fontWeight: '600' },
   tile: { fontSize: 16, lineHeight: 21, fontWeight: '600' },
   service: { fontSize: 16, lineHeight: 22, fontWeight: '600' },

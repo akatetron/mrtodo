@@ -204,4 +204,21 @@ select chk((select not exists (select 1 from jsonb_array_elements(catalogue()) f
 update catalogue_services set status = 'published' where key = 'plumbing-coordination';
 \i ../migrations/0010_catalogue_correction.sql
 select chk((select status = 'published' from catalogue_services where key = 'plumbing-coordination'), 're-running the migration does not re-archive something an admin reinstated');
+-- family images (migration 0011 comes after the 0010 we just re-ran)
+:as_db;
+\i ../migrations/0011_family_images.sql
+:as_AD;
+select set_family_image((select id from service_families where key = 'everyday-tech'), 'https://example.com/tech.jpg', 'A person helping set up a phone');
+:as_C;
+select chk((select (f ->> 'image_url') = 'https://example.com/tech.jpg' and (f ->> 'image_alt') like 'A person%' from jsonb_array_elements(catalogue()) f where f ->> 'key' = 'everyday-tech'), 'customers receive a family image link and its description');
+select expect_error($$select set_family_image((select id from service_families limit 1), 'https://x.test/a.jpg')$$, 'a customer cannot set a family image');
+:as_SU;
+select expect_error($$select set_family_image((select id from service_families limit 1), 'https://x.test/a.jpg')$$, 'a support admin cannot set one either');
+:as_AD;
+select expect_error($$select set_family_image((select id from service_families limit 1), 'http://insecure.test/a.jpg')$$, 'only https links are accepted');
+select expect_error($$select set_family_image((select id from service_families limit 1), 'javascript:alert(1)')$$, 'a script link is refused');
+select set_family_image((select id from service_families where key = 'everyday-tech'), '');
+:as_C;
+select chk((select (f ->> 'image_url') is null from jsonb_array_elements(catalogue()) f where f ->> 'key' = 'everyday-tech'), 'clearing the link falls back to the built-in artwork');
+:as_db;
 select chk(true, 'qualifications suite finished');

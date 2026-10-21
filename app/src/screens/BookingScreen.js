@@ -4,12 +4,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, KeyboardAvoidingView, Platform, StyleSheet, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing, radius, typo, pagePad } from '../theme';
+import { colors, spacing, radius, typo, pagePad, maxContentWidth } from '../theme';
 import { Button, FieldLabel, Input, ErrorText } from '../components/UI';
 import AppIcon from '../components/AppIcon';
 import DynamicQuestions, { firstProblem } from '../components/DynamicQuestions';
 import { BookForSomeoneElseSection, BookingStepHeader, InlineValidationMessage } from '../components/discover/BookingParts';
 import { ScreenHeader } from '../components/discover/Discover';
+import { PriceOrQuoteSummary } from '../components/concierge/Concierge';
 import { useCatalogue } from '../data/useCatalogue';
 import { useBookingDraft, patchDraft, addToCart, removeFromCart, resetDraft, getDraft } from '../data/bookingDraft';
 import { isValidDate } from '../data/extras';
@@ -172,9 +173,12 @@ export default function BookingScreen({ navigation, route }) {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView ref={scroller} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: pad, paddingBottom: 140, paddingTop: 4 }}>
-        <ScreenHeader title={step === 3 ? 'Review your request' : service ? service.definition.title : 'Tell us what you need'} onBack={back}
-          subtitle={step === 1 && service ? service.definition.description : step === 1 ? 'Describe the task, and we’ll review your request.' : undefined} />
+      <ScrollView ref={scroller} keyboardShouldPersistTaps="handled" contentContainerStyle={{ width: '100%', maxWidth: maxContentWidth, alignSelf: 'center', paddingHorizontal: pad, paddingBottom: 140, paddingTop: 4 }}>
+        <ScreenHeader
+          title={step === 3 ? 'Check your request' : step === 2 ? 'When and where would you like help?' : service ? service.definition.title : 'Tell us what you need'} onBack={back}
+          subtitle={step === 3 ? 'Take a last look. Nothing is final until you send it.'
+            : step === 2 ? 'This helps us find the right Personal Manager and plan the visit.'
+            : service ? service.definition.description : 'Describe the task, and we’ll review your request.'} />
         <View style={{ marginTop: spacing.lg }}><BookingStepHeader step={step} steps={STEPS} /></View>
 
         {step === 1 && (
@@ -183,7 +187,7 @@ export default function BookingScreen({ navigation, route }) {
               <>
                 {!!service.definition.instructions && <Text style={s.body}>{service.definition.instructions}</Text>}
                 {!!service.definition.safety_notes && <View style={s.note}><Text style={s.noteText}>{service.definition.safety_notes}</Text></View>}
-                <Text style={s.priceChip}>{priceLine(service.definition.pricing)}</Text>
+                <PriceOrQuoteSummary pricing={service.definition.pricing} />
                 <DynamicQuestions questions={service.definition.questions} answers={answers} onChange={(a) => { setAnswers(a); setErrors({}); }} />
                 <InlineValidationMessage>{errors.answers}</InlineValidationMessage>
                 <View><FieldLabel>Anything else we should know? (optional)</FieldLabel><Input multiline value={extra} onChangeText={setExtra} /></View>
@@ -247,7 +251,7 @@ export default function BookingScreen({ navigation, route }) {
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={s.service}>{i.title}</Text>
                   <Text style={s.muted}>{i.scheduled_for}{i.schedule_kind === 'multi_day' ? ' · several days' : ''}</Text>
-                  <Text style={s.price}>{i._price ? priceLine(i._price) : 'Price set after we review your request.'}</Text>
+                  {i._price ? <PriceOrQuoteSummary pricing={i._price} compact /> : <Text style={s.price}>Quote required</Text>}
                 </View>
                 {draft.cart.length > 0 && idx < draft.cart.length && <Button label="Remove" size="sm" variant="ghost" onPress={() => removeFromCart(idx)} />}
               </View>
@@ -269,9 +273,11 @@ export default function BookingScreen({ navigation, route }) {
       </ScrollView>
 
       <View style={[s.bar, { paddingBottom: Math.max(insets.bottom, 12) + 4, paddingHorizontal: pad }]}>
+        <View style={{ flex: 1, maxWidth: maxContentWidth, alignSelf: 'center', flexDirection: 'row' }}>
         {step < 3
           ? <Button label="Continue" onPress={next} style={{ flex: 1 }} />
           : <Button label={busy ? 'Sending…' : pending > 0 ? 'Send request' : 'Confirm booking'} onPress={submit} disabled={busy} style={{ flex: 1 }} />}
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
