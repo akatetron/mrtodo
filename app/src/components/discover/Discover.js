@@ -72,7 +72,7 @@ export function ServiceListItem({ title, description, meta, onPress, last }) {
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={s.itemTitle}>{title}</Text>
         {!!description && <Text style={s.itemDesc} numberOfLines={2}>{description}</Text>}
-        {!!meta && <Text style={s.itemMeta}>{meta}</Text>}
+        {!!meta && (typeof meta === 'string' ? <Text style={s.itemMeta}>{meta}</Text> : meta)}
       </View>
       <AppIcon name="chevron-right" size={22} color={colors.muted} />
     </Pressable>

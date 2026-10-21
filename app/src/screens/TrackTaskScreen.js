@@ -7,6 +7,7 @@ import { CustomerScopeChange } from '../components/ScopeChange';
 import { CustomerQuote } from '../components/QuoteFlow';
 import PmProfileCard from '../components/PmProfileCard';
 import EscalateCard from '../components/EscalateCard';
+import TaskNextStep from '../components/concierge/TaskNextStep';
 import InAppCallButton from '../components/InAppCallButton';
 import {
   useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
@@ -31,7 +32,7 @@ export default function TrackTaskScreen({ route, navigation }) {
   const showPm = w && ['assigned', 'in_progress', 'completed'].includes(t.status);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
+    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60, width: '100%', maxWidth: 640, alignSelf: 'center' }}>
       <View style={styles.headerRow}>
         <Text style={styles.h1}>Task #{shortId(t.id)}</Text>
         <Badge label={meta.label} tone={meta.tone} />
@@ -39,14 +40,13 @@ export default function TrackTaskScreen({ route, navigation }) {
 
       <Card style={{ marginBottom: spacing.lg, gap: spacing.md }}>
         <StatusTracker status={t.status} />
-        {!!STATUS_COPY[t.status] && <Text style={styles.statusCopy}>{STATUS_COPY[t.status]}</Text>}
         {t.status === 'cancelled' && !!t.cancelReason && <Text style={styles.statusCopy}>Reason: {t.cancelReason}</Text>}
       </Card>
 
       <Card style={{ marginBottom: spacing.lg, gap: spacing.md }}>
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Badge label={`${catMeta(t.category).emoji} ${catMeta(t.category).label}`} />
-          {t.taskType === 'ongoing' && <Badge label="↻ Ongoing" tone="brass" />}
+          <Badge label={catMeta(t.category).label} />
+          {t.taskType === 'ongoing' && <Badge label="Several days" tone="brass" />}
         </View>
         <Text style={styles.title}>{t.title}</Text>
         {!!t.description && <Text style={styles.desc}>{t.description}</Text>}
@@ -74,18 +74,7 @@ export default function TrackTaskScreen({ route, navigation }) {
         </View>
       </Card>
 
-      {t.reviewState === 'needs_review' && ['requested', 'matched'].includes(t.status) && (
-        <Card style={{ marginBottom: spacing.lg, gap: 4 }}>
-          <FieldLabel>Being reviewed</FieldLabel>
-          <Text style={styles.statusCopy}>Our team is looking at your request. This is not booked yet: we will set a price for you to confirm, or ask for anything we are missing.</Text>
-        </Card>
-      )}
-      {t.reviewState === 'clarification_needed' && (
-        <Card style={{ marginBottom: spacing.lg, gap: 4, borderColor: colors.brass, borderWidth: 2 }}>
-          <FieldLabel>We need a little more information</FieldLabel>
-          <Text style={styles.statusCopy}>Check your notifications for our question.</Text>
-        </Card>
-      )}
+      <TaskNextStep t={t} />
       {!!t.bookingId && (() => {
         const siblings = useTasksNow().filter((x) => x.bookingId === t.bookingId);
         return siblings.length > 1 ? (

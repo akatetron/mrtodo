@@ -195,3 +195,4 @@ export const listSubscriptionsAdmin = () => run(supabase.from('subscriptions').s
 export const opsSummary = () => run(supabase.rpc('ops_summary'));
 export const goldOverview = () => run(supabase.rpc('gold_overview'));
 export const listDeadOutbox = () => run(supabase.from('outbox').select('id, kind, last_error, attempts, created_at').eq('status', 'dead').order('created_at', { ascending: false }).limit(50));
+export const setFamilyImage = (family, url, alt) => run(supabase.rpc('set_family_image', { p_family: family, p_url: url || null, p_alt: alt || null }));
