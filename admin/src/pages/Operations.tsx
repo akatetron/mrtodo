@@ -3,10 +3,10 @@ import { supabase } from '../lib/supabase';
 import { useLive, q } from '../lib/useLive';
 import { ErrorBox } from '../components/ui';
 
-export default function Operations() {
+export default function Operations(_props: any) {
   const { data: ops, error } = useLive(() => q(supabase.rpc('ops_summary')), ['ops_events', 'escalations', 'outbox'], []);
   const { data: gold } = useLive(() => q(supabase.rpc('gold_overview')), ['profiles'], []);
-  const list = (o) => Object.entries(o || {});
+  const list = (o: any): [string, any][] => Object.entries(o || {});
   return (
     <>
       <div className="page-head"><div><h1>Operations</h1><p>Routing, notifications, payment webhooks and Gold Tier. Numbers come from the database.</p></div></div>

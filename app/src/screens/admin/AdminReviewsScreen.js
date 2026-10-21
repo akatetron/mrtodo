@@ -52,9 +52,9 @@ const styles = StyleSheet.create({
   val: { fontWeight: '800', fontSize: 19, marginTop: 2, color: colors.text },
   chips: { flexDirection: 'row', gap: 8, marginVertical: spacing.sm },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  time: { color: colors.faint, fontSize: 12 },
+  time: { color: colors.muted, fontSize: 12 },
   title: { fontWeight: '700', fontSize: 14.5, color: colors.text },
   review: { color: colors.text, fontSize: 13.5, lineHeight: 20, fontStyle: 'italic' },
   meta: { color: colors.muted, fontSize: 12.5 },
-  empty: { color: colors.faint, textAlign: 'center', padding: 28, fontSize: 13.5 },
+  empty: { color: colors.muted, textAlign: 'center', padding: 28, fontSize: 13.5 },
 });

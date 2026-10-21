@@ -54,4 +54,4 @@ export function rating(r, n) {
 }
 
 // Profiles no longer expose phone or email; list columns explicitly (keep in sync with app/src/lib/errors.js).
-export const PROFILE_COLUMNS = 'id, full_name, role, rating, rating_count, categories, jobs_done, distance_km, online, created_at, bio, experience_years, service_area, worker_status, application_note, applied_at, reviewed_at, reviewed_by, last_assigned_at, admin_level, tier, tier_since, verified_jobs';
+export const PROFILE_COLUMNS = 'id, full_name, role, rating, rating_count, categories, jobs_done, distance_km, online, created_at, bio, experience_years, service_area, worker_status, application_note, applied_at, reviewed_at, reviewed_by, last_assigned_at, admin_level, tier, tier_since, verified_jobs, languages, base_lat, base_lng, deleted_at';

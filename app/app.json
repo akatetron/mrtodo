@@ -16,17 +16,36 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.mrtodo.app",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Mr. Todo uses your photos so you can upload ID and qualification documents."
+        "NSPhotoLibraryUsageDescription": "Mr. Todo uses your photos so you can upload ID and qualification documents.",
+        "NSLocationWhenInUseUsageDescription": "Mr. Todo uses your location once, only when you tap the button, to help match nearby Personal Managers."
       }
     },
     "android": {
       "package": "com.mrtodo.app",
-      "backgroundColor": "#123B3F"
+      "backgroundColor": "#123B3F",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
       "name": "Mr. Todo",
       "themeColor": "#123B3F"
-    }
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#123B3F"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Mr. Todo uses your location once, only when you tap the button, to help match nearby Personal Managers."
+        }
+      ]
+    ]
   }
 }

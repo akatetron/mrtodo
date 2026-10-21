@@ -11,7 +11,7 @@ function taskValue(t, visits) {
   return Number(t.est_cost || 0);
 }
 
-export default function Overview({ go }) {
+export default function Overview({ go }: { go: (id: string, sub?: string) => void }) {
   const { data, error } = useLive(async () => {
     const since30 = new Date(Date.now() - 30 * DAY).toISOString();
     const [tasks, pms, visits, recent] = await Promise.all([
@@ -34,7 +34,7 @@ export default function Overview({ go }) {
   const oldest = queue.reduce((m, t) => (!m || t.created_at < m ? t.created_at : m), null);
   const offered = data.open.filter((t) => t.status === 'matched').length;
   const active = data.open.filter((t) => ['assigned', 'in_progress'].includes(t.status)).length;
-  const done7 = data.tasks.filter((t) => t.status === 'completed' && t.completed_at && Date.now() - new Date(t.completed_at) < 7 * DAY);
+  const done7 = data.tasks.filter((t) => t.status === 'completed' && t.completed_at && Date.now() - new Date(t.completed_at).getTime() < 7 * DAY);
   const gmv7 = done7.reduce((s, t) => s + taskValue(t, visitCount), 0);
   const pending = data.pms.filter((p) => p.worker_status === 'pending').length;
   const approved = data.pms.filter((p) => p.worker_status === 'approved');
@@ -93,7 +93,7 @@ export default function Overview({ go }) {
   );
 }
 
-function Stat({ label, value, sub, onClick, alert }) {
+function Stat({ label, value, sub, onClick, alert }: { label: string; value: any; sub?: string; onClick?: () => void; alert?: boolean }) {
   return (
     <div className="card" onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default', borderColor: alert ? 'var(--brass)' : undefined }}>
       <div className="stat-label">{label}</div>

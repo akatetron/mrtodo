@@ -67,7 +67,7 @@ export default function AdminBroadcastScreen() {
 
 const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  ok: { color: colors.success, fontWeight: '700', fontSize: 13.5 },
+  ok: { color: colors.successText, fontWeight: '700', fontSize: 13.5 },
   confirm: { color: colors.text, fontSize: 13.5, fontWeight: '700', lineHeight: 19 },
-  hint: { color: colors.faint, fontSize: 12.5, lineHeight: 18 },
+  hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18 },
 });

@@ -6,6 +6,7 @@ import { Card, Button, FieldLabel, Input, ErrorText, Badge } from '../components
 import { myContact, updateMyProfile, formatRating, catMeta, listMyDocuments, uploadDocument } from '../data/store';
 import { docExpiry, expiryText, isValidDate } from '../data/extras';
 import { useAuth } from '../lib/AuthContext';
+import AccountExtras from '../components/AccountExtras';
 
 const ROLE_LABEL = { customer: 'Customer', worker: 'Personal Manager', admin: 'Admin' };
 
@@ -53,14 +54,16 @@ export default function AccountScreen({ navigation }) {
         <View>
           <FieldLabel>Mobile number</FieldLabel>
           <Input value={phone} onChangeText={(v) => { setPhone(v); setSaved(false); }} keyboardType="phone-pad" />
-          <Text style={{ fontSize: 12, color: colors.faint, marginTop: 6 }}>Shared only with the person on the other side of an accepted task.</Text>
+          <Text style={{ fontSize: 12, color: colors.muted, marginTop: 6 }}>Shared only with the person on the other side of an accepted task.</Text>
         </View>
         <ErrorText>{error}</ErrorText>
-        {saved && <Text style={{ color: colors.success, fontSize: 13 }}>Saved ✓</Text>}
+        {saved && <Text style={{ color: colors.successText, fontSize: 13 }}>Saved ✓</Text>}
         <Button label={busy ? 'Saving…' : 'Save changes'} onPress={save} disabled={busy || !fullName.trim()} />
       </Card>
 
       {profile.role === 'worker' && profile.worker_status === 'approved' && <Documents profile={profile} />}
+
+      <AccountExtras profile={profile} refreshProfile={refreshProfile} signOut={signOut} />
 
       <Button label="Sign out" variant="danger" onPress={signOut} />
     </ScrollView>
@@ -106,7 +109,7 @@ function Documents({ profile }) {
           </View>
         );
       })}
-      {!docs.length && <Text style={{ color: colors.faint, fontSize: 13 }}>No documents on file.</Text>}
+      {!docs.length && <Text style={{ color: colors.muted, fontSize: 13 }}>No documents on file.</Text>}
       <View>
         <FieldLabel>Add or renew a certificate</FieldLabel>
         <Input value={expiry} onChangeText={(v) => { setExpiry(v); setError(''); }} placeholder="Expiry date, if it has one (2027-03-31)" autoCapitalize="none" />

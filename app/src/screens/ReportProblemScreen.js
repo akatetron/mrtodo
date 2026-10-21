@@ -71,6 +71,6 @@ export default function ReportProblemScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   h1: { fontSize: 21, fontWeight: '800', color: colors.text, marginBottom: 2 },
   body: { color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: 'left' },
-  hint: { color: colors.faint, fontSize: 12.5, lineHeight: 18 },
+  hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

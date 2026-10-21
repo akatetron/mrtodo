@@ -1,20 +1,20 @@
 import React from 'react';
 import { supabase } from '../lib/supabase';
 
-export function Badge({ tone = 'neutral', children }) {
+export function Badge({ tone = 'neutral', children }: { tone?: string; children?: React.ReactNode }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
-export function Avatar({ name }) {
+export function Avatar({ name }: { name?: string }) {
   const initials = (name || '?').split(' ').filter(Boolean).map((s) => s[0]).join('').slice(0, 2).toUpperCase();
   return <div className="avatar">{initials}</div>;
 }
 
-export function ErrorBox({ children }) {
+export function ErrorBox({ children }: { children?: React.ReactNode }) {
   return children ? <div className="error">{children}</div> : null;
 }
 
-export function Field({ label, children }) {
+export function Field({ label, children }: { label: string; children?: React.ReactNode }) {
   return (
     <label className="stack" style={{ gap: 4 }}>
       <span className="label">{label}</span>
@@ -24,20 +24,20 @@ export function Field({ label, children }) {
 }
 
 // Runs an async action with busy + error state; returns [run, busy, error, setError].
-export function useAction() {
+export function useAction(): [(fn: () => Promise<any>) => Promise<any>, boolean, string, (v: string) => void] {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
-  const run = React.useCallback(async (fn) => {
+  const run = React.useCallback(async (fn: () => Promise<any>) => {
     setBusy(true); setError('');
-    try { return await fn(); } catch (e) { setError(e.message || String(e)); return undefined; } finally { setBusy(false); }
+    try { return await fn(); } catch (e: any) { setError(e.message || String(e)); return undefined; } finally { setBusy(false); }
   }, []);
   return [run, busy, error, setError];
 }
 
 // Contact details are no longer part of a profile or task. An admin reveals them
 // on demand, and the database records each lookup in the audit log.
-export function Contact({ id }) {
-  const [info, setInfo] = React.useState(null);
+export function Contact({ id }: { id?: string }) {
+  const [info, setInfo] = React.useState<any>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   if (!id) return null;

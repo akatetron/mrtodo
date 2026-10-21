@@ -1,7 +1,7 @@
 // Swipe the handle all the way across to confirm. Screen-reader users and anyone
 // who prefers not to swipe get a plain button that does the same thing.
 import React, { useRef, useState } from 'react';
-import { View, Text, Animated, PanResponder, StyleSheet } from 'react-native';
+import { View, Text, Animated, PanResponder, AccessibilityInfo, StyleSheet } from 'react-native';
 import { colors, radius } from '../theme';
 import { Button } from './UI';
 
@@ -10,6 +10,8 @@ const HANDLE = 56;
 export default function SwipeToConfirm({ label, onConfirm, disabled, busy, alternativeLabel }) {
   const [width, setWidth] = useState(0);
   const x = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useRef(false);
+  React.useEffect(() => { AccessibilityInfo.isReduceMotionEnabled?.().then((v) => { reduceMotion.current = !!v; }).catch(() => {}); }, []);
   const live = useRef({ width: 0, disabled: false, onConfirm });
   live.current = { width, disabled: disabled || busy, onConfirm };
 
@@ -20,7 +22,7 @@ export default function SwipeToConfirm({ label, onConfirm, disabled, busy, alter
     onPanResponderRelease: (_, g) => {
       const max = live.current.width - HANDLE;
       if (!live.current.disabled && max > 0 && g.dx >= max * 0.92) live.current.onConfirm();
-      Animated.spring(x, { toValue: 0, useNativeDriver: false }).start();      // always return: nothing is final until the server says so
+      if (reduceMotion.current) x.setValue(0); else Animated.spring(x, { toValue: 0, useNativeDriver: false }).start();      // always return: nothing is final until the server says so
     },
   })).current;
 

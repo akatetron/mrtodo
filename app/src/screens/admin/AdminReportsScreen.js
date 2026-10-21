@@ -67,10 +67,10 @@ function ReportCard({ r, navigation }) {
 const styles = StyleSheet.create({
   chips: { flexDirection: 'row', gap: 8 },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  time: { color: colors.faint, fontSize: 12 },
+  time: { color: colors.muted, fontSize: 12 },
   title: { fontWeight: '800', fontSize: 15.5, color: colors.text },
   meta: { color: colors.muted, fontSize: 13 },
   details: { color: colors.text, fontSize: 13.5, lineHeight: 20, fontStyle: 'italic' },
-  resolved: { color: colors.success, fontSize: 13, lineHeight: 19 },
-  empty: { color: colors.faint, textAlign: 'center', padding: 28, fontSize: 13.5 },
+  resolved: { color: colors.successText, fontSize: 13, lineHeight: 19 },
+  empty: { color: colors.muted, textAlign: 'center', padding: 28, fontSize: 13.5 },
 });

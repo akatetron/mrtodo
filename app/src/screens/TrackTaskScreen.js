@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center', marginTop: 1,
   },
-  footnote: { fontSize: 12, color: colors.faint, marginTop: 12 },
+  footnote: { fontSize: 12, color: colors.muted, marginTop: 12 },
   otp: { fontWeight: '800', fontSize: 24, letterSpacing: 3, color: colors.accentDark },
   avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.accentLight, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontWeight: '800', color: colors.accentDark, fontSize: 16 },

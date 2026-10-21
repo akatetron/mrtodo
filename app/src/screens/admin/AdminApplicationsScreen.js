@@ -50,5 +50,5 @@ const styles = StyleSheet.create({
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   name: { fontWeight: '700', fontSize: 15, color: colors.text, flexShrink: 1 },
   meta: { color: colors.muted, fontSize: 13 },
-  empty: { color: colors.faint, textAlign: 'center', padding: 28, fontSize: 13.5 },
+  empty: { color: colors.muted, textAlign: 'center', padding: 28, fontSize: 13.5 },
 });

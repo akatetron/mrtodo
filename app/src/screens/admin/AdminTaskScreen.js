@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
   desc: { color: colors.muted, fontSize: 13.5, lineHeight: 20 },
   h2: { fontSize: 15, fontWeight: '700', color: colors.text },
   hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18 },
-  ok: { color: colors.success, fontSize: 13, fontWeight: '700' },
+  ok: { color: colors.successText, fontSize: 13, fontWeight: '700' },
   avatar: { width: 40, height: 40, borderRadius: 20, flexShrink: 0, backgroundColor: colors.accentLight, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontWeight: '800', color: colors.accentDark, fontSize: 13 },
   cname: { fontWeight: '700', fontSize: 14.5, color: colors.text },

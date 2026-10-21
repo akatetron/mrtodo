@@ -59,5 +59,5 @@ const styles = StyleSheet.create({
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   name: { fontWeight: '700', fontSize: 15, color: colors.text, flexShrink: 1 },
   meta: { color: colors.muted, fontSize: 13 },
-  hint: { color: colors.faint, fontSize: 12.5, lineHeight: 18 },
+  hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18 },
 });
