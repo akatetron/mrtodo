@@ -4,6 +4,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { colors, spacing, radius } from '../theme';
 import { FieldLabel, Input } from './UI';
+import AppIcon from './AppIcon';
 
 // A question is shown when it has no condition, or when the earlier answer matches.
 export function isShown(q, answers) {
@@ -40,7 +41,7 @@ export default function DynamicQuestions({ questions, answers, onChange }) {
                   <Pressable key={opt} accessibilityRole={multi ? 'checkbox' : 'radio'} accessibilityState={{ selected: on, checked: on }}
                     onPress={() => set(q.id, multi ? (on ? answers[q.id].filter((x) => x !== opt) : [...(answers[q.id] || []), opt]) : opt)}
                     style={[styles.opt, on && styles.optOn]}>
-                    <Text style={[styles.optText, on && { color: colors.accentDark }]}>{on ? '✓ ' : ''}{opt}</Text>
+                    {on && <AppIcon name="check" size={16} />}<Text style={[styles.optText, on && { color: colors.accent }]}>{opt}</Text>
                   </Pressable>
                 );
               })}
@@ -59,7 +60,7 @@ export default function DynamicQuestions({ questions, answers, onChange }) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  opt: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 16, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.surface },
+  opt: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   optOn: { borderColor: colors.accent, backgroundColor: colors.accentLight },
-  optText: { fontSize: 15, fontWeight: '700', color: colors.muted },
+  optText: { fontSize: 15, fontWeight: '600', color: colors.text },
 });

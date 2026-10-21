@@ -32,6 +32,8 @@ import AdminCatalogueScreen from '../screens/admin/AdminCatalogueScreen';
 import AdminStandardsScreen from '../screens/admin/AdminStandardsScreen';
 import PmSkillsScreen from '../screens/PmSkillsScreen';
 import TodoPlusScreen from '../screens/TodoPlusScreen';
+import CategoryScreen from '../screens/CategoryScreen';
+import BookingScreen from '../screens/BookingScreen';
 import AdminEscalationsScreen from '../screens/admin/AdminEscalationsScreen';
 import AdminPlansScreen from '../screens/admin/AdminPlansScreen';
 import AdminOpsScreen from '../screens/admin/AdminOpsScreen';
@@ -62,7 +64,9 @@ function AuthNavigator() {
 function CustomerNavigator() {
   return (
     <CustomerStack.Navigator screenOptions={screenOptions}>
-      <CustomerStack.Screen name="Home" component={HomeScreen} options={{ title: 'Mr. Todo' }} />
+      <CustomerStack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+      <CustomerStack.Screen name="ServiceCategory" component={CategoryScreen} options={{ headerShown: false }} />
+      <CustomerStack.Screen name="Booking" component={BookingScreen} options={{ headerShown: false }} />
       <CustomerStack.Screen name="TrackTask" component={TrackTaskScreen} options={{ title: 'Track task' }} />
       <CustomerStack.Screen name="TodoPlus" component={TodoPlusScreen} options={{ title: 'Todo+' }} />
       <CustomerStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />

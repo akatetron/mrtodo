@@ -3,17 +3,17 @@
 ## 1. Database (in order)
 1. Back up: Supabase → Project Settings → Database → Backups.
 2. SQL Editor → paste all of `supabase/schema.sql` → Run. It contains migrations
-   `0001` to `0009` in order and is safe to run again. (The individual files are in
+   `0001` to `0010` in order and is safe to run again. (The individual files are in
    `supabase/migrations/` if you prefer to run them one by one, in number order.)
 3. Optional demo data: `supabase/seed_demo.sql` (accounts + sample tasks) and
    `supabase/seed_demo_skills.sql` (lets the demo Personal Manager accept the sample services).
-4. Sample catalogue: migration 0007 publishes 12 sample services with SAMPLE prices.
+4. Sample catalogue: migration 0007 publishes 8 sample services (migration 0010 removes any earlier sample that promised an arranged plumber, electrician or technician) with SAMPLE prices.
    Edit or pause them in the app: More → Service catalogue.
 
 What each migration adds: 0002 settings, rate limits, audit trail; 0003 prices and
 templates; 0004 completion codes, Gold Tier; 0005 contact privacy; 0006 catalogue,
 bookings, multi-day approval; 0007 qualifications, specialists, quotes, sample
-catalogue; 0008 PM feed, claiming, escalation, Todo+, notification outbox, retention; 0009 account deletion.
+catalogue; 0008 PM feed, claiming, escalation, Todo+, notification outbox, retention; 0009 account deletion; 0010 corrects the sample catalogue (no specialist promises, icon keys).
 
 Rollback: the migrations only add; they do not delete your data. To undo a feature,
 switch it off in the app (pause services, switch plans off). Restoring the backup

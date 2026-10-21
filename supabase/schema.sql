@@ -10,6 +10,7 @@
 --   0007_qualifications_quotes_specialists.sql
 --   0008_routing_escalation_subscriptions_outbox.sql
 --   0009_account_deletion.sql
+--   0010_catalogue_correction.sql
 
 -- ============================================================================
 -- migration: 0001_foundation.sql
@@ -3562,12 +3563,6 @@ begin
        '[{"id":"router","type":"single_choice","label":"Do you have a router?","required":true,"options":["Yes","No"]},{"id":"router_model","type":"short_text","label":"Which router?","show_if":{"question":"router","equals":"Yes"}},{"id":"problem","type":"long_text","label":"What is happening?"}]'::jsonb),
     ('everyday-tech', 'printer-setup', 'general', 'Printer setup', 'Connect a printer to your phone and computer.', 45, 'fixed', 399, '{tech-support}', false,
        '[{"id":"printer","type":"short_text","label":"Printer make and model"}]'::jsonb),
-    ('home-repairs', 'plumbing-coordination', 'handyman', 'Plumbing repair (we arrange a plumber)', 'A leak, a blocked drain or a fitting to replace. We find and manage a plumber for you.', 90, 'manual_quote', null, '{home-repair-coordination}', true,
-       '[{"id":"issue","type":"long_text","label":"What needs fixing?","required":true},{"id":"urgent","type":"single_choice","label":"Is water leaking now?","options":["Yes","No"]}]'::jsonb),
-    ('home-repairs', 'electrical-coordination', 'handyman', 'Electrical repair (we arrange an electrician)', 'A fault, a switch or a fitting. We find and manage a qualified electrician.', 90, 'manual_quote', null, '{home-repair-coordination}', true,
-       '[{"id":"issue","type":"long_text","label":"What needs fixing?","required":true}]'::jsonb),
-    ('home-repairs', 'appliance-repair', 'handyman', 'Appliance repair (we arrange a technician)', 'Washing machine, fridge, AC or another appliance.', 90, 'manual_quote', null, '{home-repair-coordination}', true,
-       '[{"id":"appliance","type":"short_text","label":"Which appliance and brand?","required":true},{"id":"issue","type":"long_text","label":"What is wrong?"}]'::jsonb),
     ('errands', 'parcel-collection', 'delivery', 'Parcel pick-up or drop', 'Collect or drop off a parcel or document.', 60, 'fixed', 249, '{errands}', false,
        '[{"id":"from","type":"address","label":"Pick up from","required":true},{"id":"to","type":"address","label":"Deliver to","required":true}]'::jsonb),
     ('errands', 'shopping-assistance', 'care', 'Shopping assistance', 'Groceries, medicines or other shopping from a list.', 90, 'fixed', 299, '{errands}', false,
@@ -3577,9 +3572,7 @@ begin
     ('setup-organise', 'furniture-assembly', 'handyman', 'Furniture assembly', 'Put together flat-pack furniture.', 90, 'fixed', 599, '{assembly}', false,
        '[{"id":"items","type":"long_text","label":"What needs assembling?","required":true}]'::jsonb),
     ('setup-organise', 'home-organisation', 'general', 'Home organisation', 'Sort and organise a room or cupboard.', 120, 'manual_quote', null, '{organising}', false,
-       '[{"id":"area","type":"short_text","label":"Which room or area?","required":true}]'::jsonb),
-    ('family-support', 'parent-practical-help', 'care', 'Practical help for a parent or relative', 'A mix of everyday help for someone you care about. Tell us what is needed and we will plan it.', 120, 'manual_quote', null, '{companionship}', false,
-       '[{"id":"help","type":"long_text","label":"What help would be useful?","required":true}]'::jsonb)
+       '[{"id":"area","type":"short_text","label":"Which room or area?","required":true}]'::jsonb)
   ) as v(fam, skey, cat, title, descr, mins, approach, price, skills, specialist, questions)
   loop
     continue when exists (select 1 from catalogue_services where key = rec.skey);
@@ -4234,3 +4227,66 @@ begin
 end $$;
 revoke execute on function public.request_account_deletion() from public, anon;
 grant execute on function public.request_account_deletion() to authenticated;
+
+-- ============================================================================
+-- migration: 0010_catalogue_correction.sql
+-- ============================================================================
+-- 0010 — correct the sample catalogue so it promises only what Mr. Todo can do.
+-- Safe to run more than once. Depends on 0006 and 0007.
+--
+-- Mr. Todo has not confirmed a network of external plumbers, electricians or
+-- technicians, so nothing may be advertised as "we arrange" one. The specialist
+-- machinery (specialists, quotes, regulated-work rules) stays in the database
+-- for when that capability is real, but no customer-facing service uses it now.
+-- "Help for family" is a way of booking (booking for someone else), not a
+-- category, so it is no longer a family of its own.
+
+alter table service_families add column if not exists icon_key text check (icon_key is null or icon_key ~ '^[a-z0-9-]{2,30}$');
+
+-- Done once (a marker row), so re-running this file never re-archives something an admin later reinstates.
+-- Archived, not deleted: bookings already made against them keep their history.
+do $$ begin
+  if not exists (select 1 from platform_settings where key = 'catalogue_correction_0010') then
+    update catalogue_services set status = 'archived', updated_at = now()
+     where key in ('plumbing-coordination', 'electrical-coordination', 'appliance-repair', 'parent-practical-help') and status <> 'archived';
+    update service_families set status = 'paused', updated_at = now() where key in ('home-repairs', 'family-support') and status <> 'paused';
+    insert into platform_settings (key, value, description) values ('catalogue_correction_0010', 'true', 'Marker: the sample catalogue was corrected to remove specialist promises (migration 0010)');
+  end if;
+end $$;
+
+-- Icons are chosen from a fixed set the apps know how to draw (never emoji).
+update service_families set icon_key = case key
+  when 'everyday-tech' then 'smartphone'
+  when 'assistance' then 'users'
+  when 'errands' then 'shopping-bag'
+  when 'setup-organise' then 'package'
+  when 'home-repairs' then 'tool'
+  when 'family-support' then 'heart'
+  end
+ where icon_key is null and key in ('everyday-tech', 'assistance', 'errands', 'setup-organise', 'home-repairs', 'family-support');
+
+update service_families set name = 'Personal Assistance', description = 'Someone to go with you and help with practical things.' where key = 'assistance' and name = 'Personal Assistance and Companionship';
+update service_families set name = 'Errands and Practical Tasks', description = 'Pick-ups, shopping and small jobs.' where key = 'errands' and name = 'Errands and Everyday Tasks';
+update service_families set name = 'Setup and Organisation', description = 'Assemble, set up and tidy.' where key = 'setup-organise' and name = 'Setup, Installation and Organization';
+
+-- The customer catalogue now also hands the apps the icon key.
+create or replace function public.catalogue()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', f.id, 'key', f.key, 'name', f.name, 'description', f.description, 'icon_key', f.icon_key,
+    'available', f.available_for_booking, 'regions', f.regions, 'parent_id', f.parent_id,
+    'services', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', s.id, 'key', s.key, 'category', s.category, 'version', s.current_version, 'definition', v.definition - 'internal_notes')
+        order by s.sort_order, s.key)
+      from catalogue_services s
+      join catalogue_service_versions v on v.service_id = s.id and v.version = s.current_version
+      where s.family_id = f.id and s.status = 'published'), '[]')
+  ) order by f.sort_order, f.key), '[]')
+  from service_families f
+  where auth.uid() is not null and f.status = 'published' and f.available_for_booking
+    and exists (select 1 from catalogue_services s where s.family_id = f.id and s.status = 'published' and s.current_version > 0);   -- no empty categories
+$$;
+revoke execute on function public.catalogue() from public, anon;
+grant execute on function public.catalogue() to authenticated;
+select public.refresh_profile_grants();

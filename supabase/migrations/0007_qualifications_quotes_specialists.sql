@@ -631,12 +631,6 @@ begin
        '[{"id":"router","type":"single_choice","label":"Do you have a router?","required":true,"options":["Yes","No"]},{"id":"router_model","type":"short_text","label":"Which router?","show_if":{"question":"router","equals":"Yes"}},{"id":"problem","type":"long_text","label":"What is happening?"}]'::jsonb),
     ('everyday-tech', 'printer-setup', 'general', 'Printer setup', 'Connect a printer to your phone and computer.', 45, 'fixed', 399, '{tech-support}', false,
        '[{"id":"printer","type":"short_text","label":"Printer make and model"}]'::jsonb),
-    ('home-repairs', 'plumbing-coordination', 'handyman', 'Plumbing repair (we arrange a plumber)', 'A leak, a blocked drain or a fitting to replace. We find and manage a plumber for you.', 90, 'manual_quote', null, '{home-repair-coordination}', true,
-       '[{"id":"issue","type":"long_text","label":"What needs fixing?","required":true},{"id":"urgent","type":"single_choice","label":"Is water leaking now?","options":["Yes","No"]}]'::jsonb),
-    ('home-repairs', 'electrical-coordination', 'handyman', 'Electrical repair (we arrange an electrician)', 'A fault, a switch or a fitting. We find and manage a qualified electrician.', 90, 'manual_quote', null, '{home-repair-coordination}', true,
-       '[{"id":"issue","type":"long_text","label":"What needs fixing?","required":true}]'::jsonb),
-    ('home-repairs', 'appliance-repair', 'handyman', 'Appliance repair (we arrange a technician)', 'Washing machine, fridge, AC or another appliance.', 90, 'manual_quote', null, '{home-repair-coordination}', true,
-       '[{"id":"appliance","type":"short_text","label":"Which appliance and brand?","required":true},{"id":"issue","type":"long_text","label":"What is wrong?"}]'::jsonb),
     ('errands', 'parcel-collection', 'delivery', 'Parcel pick-up or drop', 'Collect or drop off a parcel or document.', 60, 'fixed', 249, '{errands}', false,
        '[{"id":"from","type":"address","label":"Pick up from","required":true},{"id":"to","type":"address","label":"Deliver to","required":true}]'::jsonb),
     ('errands', 'shopping-assistance', 'care', 'Shopping assistance', 'Groceries, medicines or other shopping from a list.', 90, 'fixed', 299, '{errands}', false,
@@ -646,9 +640,7 @@ begin
     ('setup-organise', 'furniture-assembly', 'handyman', 'Furniture assembly', 'Put together flat-pack furniture.', 90, 'fixed', 599, '{assembly}', false,
        '[{"id":"items","type":"long_text","label":"What needs assembling?","required":true}]'::jsonb),
     ('setup-organise', 'home-organisation', 'general', 'Home organisation', 'Sort and organise a room or cupboard.', 120, 'manual_quote', null, '{organising}', false,
-       '[{"id":"area","type":"short_text","label":"Which room or area?","required":true}]'::jsonb),
-    ('family-support', 'parent-practical-help', 'care', 'Practical help for a parent or relative', 'A mix of everyday help for someone you care about. Tell us what is needed and we will plan it.', 120, 'manual_quote', null, '{companionship}', false,
-       '[{"id":"help","type":"long_text","label":"What help would be useful?","required":true}]'::jsonb)
+       '[{"id":"area","type":"short_text","label":"Which room or area?","required":true}]'::jsonb)
   ) as v(fam, skey, cat, title, descr, mins, approach, price, skills, specialist, questions)
   loop
     continue when exists (select 1 from catalogue_services where key = rec.skey);
