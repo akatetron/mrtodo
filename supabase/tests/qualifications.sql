@@ -5,14 +5,21 @@ update platform_settings set value = '200' where key = 'max_tasks_per_hour';
 
 -- ============================================================ sample catalogue
 :as_C;
-select chk((select count(*) >= 10 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s), 'the sample catalogue is published for customers');
+select chk((select count(*) >= 7 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s), 'the sample catalogue is published for customers');
+select chk((select not exists (select 1 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s where s ->> 'key' in ('plumbing-coordination', 'electrical-coordination', 'appliance-repair', 'parent-practical-help')) ), 'services that promised an arranged technician are not offered');
+select chk((select not exists (select 1 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s where (s -> 'definition')::text ~* '(we arrange|arrange a (plumber|electrician|technician)|we find and manage)') ), 'no published service promises to arrange a specialist');
+select chk((select count(*) = 0 from jsonb_array_elements(catalogue()) f where f ->> 'key' in ('home-repairs', 'family-support')), 'families with nothing bookable are not shown');
 select chk((select (s -> 'definition' -> 'pricing' ->> 'price')::numeric = 499 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s where s ->> 'key' = 'phone-setup'), 'a sample price is there to try');
 select chk((select count(*) = 0 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s
              where s -> 'definition' -> 'pricing' ->> 'approach' = 'manual_quote' and s -> 'definition' -> 'pricing' ? 'price'), 'quote-based services carry no invented price');
 :as_db;
 select id as svc_phone from catalogue_services where key = 'phone-setup' \gset
-select id as svc_plumb from catalogue_services where key = 'plumbing-coordination' \gset
+
 select id as svc_printer from catalogue_services where key = 'printer-setup' \gset
+:as_AD;
+select save_service_draft('test-specialist-svc', (select id from service_families where key = 'everyday-tech'), 'general', '{"title":"Test specialist service","description":"Used only by the test suite.","required_skills":["home-repair-coordination"],"requires_specialist":true,"questions":[{"id":"issue","type":"long_text","label":"What needs fixing?","required":true}],"pricing":{"approach":"manual_quote"}}') as svc_plumb \gset
+select publish_service(:'svc_plumb');
+:as_db;
 :as_AD;
 select save_service_draft('phone-setup', (select family_id from catalogue_services where key = 'phone-setup'), 'general',
   (select draft || jsonb_build_object('pricing', jsonb_build_object('approach', 'fixed', 'price', 550, 'currency', 'INR')) from catalogue_services where key = 'phone-setup')) as _a \gset
@@ -181,4 +188,20 @@ select chk(jsonb_array_length(pm_public_profile(:'U_P') -> 'verified_skills') >=
 select expect_error(format($$select pm_public_profile('%s')$$, :'U_P'), 'a customer with no task for this PM cannot look them up');
 :as_P;
 select expect_error(format($$select pm_public_profile('%s')$$, :'U_Q'), 'PMs cannot browse each other''s profiles');
+-- A project that already ran the first version of the sample catalogue has the old specialist services published.
+:as_db;
+delete from platform_settings where key = 'catalogue_correction_0010';
+update service_families set status = 'published' where key = 'home-repairs';
+insert into catalogue_services (key, family_id, category, status, current_version, draft)
+  select 'plumbing-coordination', id, 'handyman', 'published', 1, '{"title":"Plumbing repair (we arrange a plumber)","description":"x","pricing":{"approach":"manual_quote"}}' from service_families where key = 'home-repairs';
+insert into catalogue_service_versions (service_id, version, definition) select id, 1, draft from catalogue_services where key = 'plumbing-coordination';
+\i ../migrations/0010_catalogue_correction.sql
+select chk((select status = 'archived' from catalogue_services where key = 'plumbing-coordination'), 'upgrading archives a specialist service an earlier version published');
+select chk((select status = 'paused' from service_families where key = 'home-repairs'), 'and pauses the home-repairs family');
+:as_C;
+select chk((select not exists (select 1 from jsonb_array_elements(catalogue()) f, jsonb_array_elements(f -> 'services') s where s ->> 'key' = 'plumbing-coordination')), 'customers no longer see it');
+:as_db;
+update catalogue_services set status = 'published' where key = 'plumbing-coordination';
+\i ../migrations/0010_catalogue_correction.sql
+select chk((select status = 'published' from catalogue_services where key = 'plumbing-coordination'), 're-running the migration does not re-archive something an admin reinstated');
 select chk(true, 'qualifications suite finished');

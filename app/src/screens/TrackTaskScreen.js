@@ -170,13 +170,13 @@ export default function TrackTaskScreen({ route, navigation }) {
       <View style={{ gap: spacing.sm, marginTop: spacing.lg }}>
         {['completed', 'cancelled'].includes(t.status) && (
           <Button
-            label="↻ Book again"
+            label="Book again"
             variant="ghost"
-            onPress={() => navigation.navigate('Home', {
+            onPress={() => navigation.navigate('Booking', {
               prefillKey: Date.now(),
               prefill: {
-                title: t.title, description: t.description, category: t.category, taskType: t.taskType,
-                location: t.location, estCost: t.estCost, ratePerDay: t.ratePerDay, forWhom: t.forWhom,
+                serviceId: t.serviceId, title: t.title, description: t.description, category: t.category, taskType: t.taskType,
+                location: t.location, forWhom: t.forWhom,
                 recipientName: t.recipientName, recipientRelation: t.recipientRelation, recipientPhone: t.recipientPhone,
               },
             })}

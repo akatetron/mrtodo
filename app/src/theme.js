@@ -30,9 +30,23 @@ export const colors = {
 // Accessibility rules every screen follows.
 export const accessibility = { baseFontSize: 16, minTouchTarget: 48 };
 
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
+export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 40 };
 
-export const radius = { sm: 10, md: 14, lg: 20, pill: 999 };
+// Horizontal page padding: 20, reduced to 16 on very narrow screens (see pagePad()).
+export const pagePad = (width) => (width < 360 ? 16 : 20);
+
+export const radius = { sm: 10, md: 12, lg: 16, pill: 999 };
+
+// Type scale. Sizes follow the device's text-size setting; nothing is fixed-height.
+export const typo = {
+  h1: { fontSize: 28, lineHeight: 34, fontWeight: '700', letterSpacing: -0.4 },
+  h2: { fontSize: 20, lineHeight: 26, fontWeight: '600' },
+  tile: { fontSize: 16, lineHeight: 21, fontWeight: '600' },
+  service: { fontSize: 16, lineHeight: 22, fontWeight: '600' },
+  body: { fontSize: 15, lineHeight: 22, fontWeight: '400' },
+  meta: { fontSize: 13, lineHeight: 18, fontWeight: '500' },
+  button: { fontSize: 16, lineHeight: 20, fontWeight: '600' },
+};
 
 export const type = {
   display: { fontWeight: '800', letterSpacing: -0.3 },

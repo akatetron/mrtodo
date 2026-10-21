@@ -96,7 +96,7 @@ select set_service_status(:'svc_phone', 'paused');
 select expect_error(format($$insert into tasks (customer_id, title, category, location, service_id) values (auth.uid(), 'Paused', 'general', 'Flat 4B, Kandivali West', '%s')$$, :'svc_phone'), 'a paused service cannot be booked');
 select chk((select t.est_cost = 500 from tasks t where id = :'t_phone'), 'pausing keeps history intact');
 :as_AD;
-select chk((select count(*) from catalogue_services where status = 'archived') = 0, 'nothing archived yet');
+select count(*) as archived_before from catalogue_services where status = 'archived' \gset
 select set_service_status(:'svc_phone', 'archived');
 select chk((select count(*) from tasks where service_id = :'svc_phone') = 2, 'archiving keeps historical bookings');
 select duplicate_service(:'svc_wifi', 'test-wifi-setup-2') as svc_copy \gset

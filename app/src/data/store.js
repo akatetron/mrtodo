@@ -17,14 +17,8 @@ export const CATEGORIES = [
   { id: 'care', label: 'Errands & Care', emoji: '💙' },
 ];
 
-export const TEMPLATES = [
-  { emoji: '🚰', label: 'Fix a leaking tap', category: 'handyman', title: 'Fix a leaking tap', desc: 'A tap is dripping and needs a look — replace washer/seal if needed.', taskType: 'one-time' },
-  { emoji: '🧹', label: 'Deep clean my home', category: 'cleaning', title: 'Deep clean the apartment', desc: 'Full clean of kitchen, bathrooms and all rooms.', taskType: 'one-time' },
-  { emoji: '📦', label: 'Help me move', category: 'moving', title: 'Move furniture and boxes', desc: 'Help moving items to a new address, may need a small vehicle.', taskType: 'one-time' },
-  { emoji: '🚴', label: 'Pick up / drop something', category: 'delivery', title: 'Pick up and deliver a package', desc: 'Collect an item from one address and deliver it to another.', taskType: 'one-time' },
-  { emoji: '🏦', label: 'Help an elderly parent with errands', category: 'care', title: 'Accompany my parent for bank/errand visits', desc: 'Someone to accompany an elderly family member for paperwork, bank visits, or errands — may take more than one visit.', taskType: 'ongoing' },
-  { emoji: '💊', label: 'Medicine or grocery run', category: 'care', title: 'Pick up medicines / groceries', desc: 'A short, one-time errand to collect medicines or groceries.', taskType: 'one-time' },
-];
+// Quick-pick requests used to live here. Services now come only from the published catalogue.
+
 
 // `label` is what the customer sees, `pmLabel` what the Personal Manager sees,
 // `adminLabel` what an admin sees.
