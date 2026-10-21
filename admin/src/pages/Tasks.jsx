@@ -66,9 +66,18 @@ export default function Tasks() {
               <tr><th>Task</th><th>Customer</th><th>Where / when</th><th>Value</th><th>Status</th><th>Posted</th></tr>
             </thead>
             <tbody>
-              {ordered.map((t) => (
-                <tr key={t.id} className={`clickable ${t.id === selectedId ? 'selected' : ''}`} onClick={() => select(t.id)}>
+              {ordered.map((t) => {
+                const open = !['completed', 'cancelled'].includes(t.status);
+                const escalated = open && !!t.escalated_at;
+                const waited = t.status === 'requested' ? Math.floor((Date.now() - new Date(t.created_at).getTime()) / 60000) : 0;
+                const warn = !escalated && waited > 15;
+                return (
+                <tr key={t.id} className={`clickable ${t.id === selectedId ? 'selected' : ''} ${escalated ? 'sla-red' : warn ? 'sla-brass' : ''}`} onClick={() => select(t.id)}>
                   <td>
+                    {escalated && <Badge tone="danger">Customer escalated</Badge>}
+                    {warn && <Badge tone="brass">SLA warning · waiting {waited} min</Badge>}
+                    {t.status === 'requested' && !escalated && !warn && <Badge tone="neutral">Waiting for assignment</Badge>}
+                    {t.price_status === 'awaiting_approval' && <Badge tone="brass">Needs a price</Badge>}
                     <div className="t-title">{catMeta(t.category).emoji} {t.title}</div>
                     <div className="faint small">{shortId(t.id)} · {catMeta(t.category).label}{t.task_type === 'ongoing' ? ' · ongoing' : ''}</div>
                   </td>
@@ -81,7 +90,8 @@ export default function Tasks() {
                   </td>
                   <td className="small muted">{when(t.created_at)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {tasks && !ordered.length && <div className="empty">{filter === 'queue' ? 'Queue is clear — every task has a Personal Manager. 🎉' : 'No tasks here.'}</div>}

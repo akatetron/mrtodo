@@ -119,9 +119,20 @@ function TaskRow({ t, onPress }) {
   const meta = STATUS_META[t.status];
   const when = t.status === 'completed' ? `done ${timeAgo(t.completedAt)}` : `posted ${timeAgo(t.createdAt)}`;
   const waited = t.status === 'matched' && t.assignedAt ? Math.round((Date.now() - new Date(t.assignedAt).getTime()) / 60000) : 0;
+  // Traffic lights: a customer escalation is red (and wins); a task unassigned for over 15 minutes is brass.
+  // The labels say it in words, so colour is never the only signal.
+  const open = !['completed', 'cancelled'].includes(t.status);
+  const escalated = open && !!t.escalatedAt;
+  const unassignedMin = t.status === 'requested' ? Math.floor((Date.now() - new Date(t.createdAt).getTime()) / 60000) : 0;
+  const slaWarn = !escalated && unassignedMin > 15;
+  const border = escalated ? { borderColor: colors.danger, borderWidth: 3 } : slaWarn ? { borderColor: colors.brass, borderWidth: 3 } : null;
   return (
-    <Pressable onPress={onPress}>
-      <Card style={{ gap: 6 }}>
+    <Pressable onPress={onPress} accessibilityLabel={`${t.title}. ${escalated ? 'Customer escalated.' : slaWarn ? `SLA warning, waiting ${unassignedMin} minutes.` : ''}`}>
+      <Card style={[{ gap: 6 }, border]}>
+        {escalated && <Badge label="Escalated" tone="danger" />}
+        {slaWarn && <Badge label={`SLA warning · waiting ${unassignedMin} min`} tone="brass" />}
+        {t.status === 'requested' && !escalated && !slaWarn && <Badge label="Waiting for assignment" tone="neutral" />}
+        {t.reviewState === 'needs_review' && <Badge label="Needs review" tone="brass" />}
         <View style={styles.rowTop}>
           <Text style={{ fontSize: 17 }}>{catMeta(t.category).emoji}</Text>
           <Text style={styles.title} numberOfLines={2}>{t.title}</Text>

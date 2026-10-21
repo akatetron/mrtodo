@@ -584,6 +584,9 @@ begin
   return result;
 end $$;
 
+-- New profile columns must be readable by the apps (phone and email stay hidden).
+select public.refresh_profile_grants();
+
 -- 7. Who may call what -----------------------------------------------------------------------------------------------------------
 revoke execute on function public.claim_skill(text, text) from public, anon;
 revoke execute on function public.set_pm_qualification(uuid, text, text, int, text, timestamptz, text) from public, anon;

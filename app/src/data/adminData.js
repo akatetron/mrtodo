@@ -181,3 +181,17 @@ export const saveSpecialist = (s) => run(supabase.rpc('save_specialist', {
 export const listSpecialistJobs = (taskId) => run(supabase.from('task_specialist_jobs').select('*, specialist:specialist_id(name, skill_key, verified)').eq('task_id', taskId).order('created_at'));
 export const assignSpecialist = (task, specialist, note) => run(supabase.rpc('assign_specialist', { p_task: task, p_specialist: specialist, p_note: note || null }));
 export const setSpecialistJob = (job, status, note) => run(supabase.rpc('set_specialist_job', { p_job: job, p_status: status, p_scheduled_at: null, p_note: note || null }));
+
+// ---- escalations, plans, operations -------------------------------------------------------
+export const listEscalations = () => run(supabase.from('escalations').select('*, task:task_id(id, title, location, scheduled_at, assigned_worker_id, status)').order('created_at', { ascending: false }).limit(100));
+export const resolveEscalation = (id, resolution) => run(supabase.rpc('resolve_escalation', { p_escalation: id, p_resolution: resolution }));
+export const unassignTask = (taskId, reason) => run(supabase.rpc('unassign_task', { p_task: taskId, p_reason: reason }));
+export const listPlansAdmin = () => run(supabase.from('subscription_plans').select('*').order('name'));
+export const savePlan = (p) => run(supabase.rpc('save_plan', {
+  p_code: p.code, p_name: p.name, p_price: p.price === '' || p.price == null ? null : Number(p.price), p_visits: parseInt(p.visits, 10) || 1,
+  p_categories: p.categories || [], p_description: p.description || null, p_terms: p.terms || null, p_provider_plan: p.providerPlan || null, p_active: !!p.active,
+}));
+export const listSubscriptionsAdmin = () => run(supabase.from('subscriptions').select('*, customer:customer_id(full_name)').order('created_at', { ascending: false }).limit(100));
+export const opsSummary = () => run(supabase.rpc('ops_summary'));
+export const goldOverview = () => run(supabase.rpc('gold_overview'));
+export const listDeadOutbox = () => run(supabase.from('outbox').select('id, kind, last_error, attempts, created_at').eq('status', 'dead').order('created_at', { ascending: false }).limit(50));

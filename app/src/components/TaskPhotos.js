@@ -6,6 +6,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { colors, spacing, radius } from '../theme';
 import { Card, Button, ErrorText } from './UI';
 import { listPhotos, uploadPhoto, removePhoto } from '../data/extras';
+import { enqueuePhoto, isNetworkError, processQueue, useOfflineQueue } from '../data/offlineQueue';
+import OfflineSyncBanner from './OfflineSyncBanner';
 
 const KIND_LABEL = { before: 'Before', after: 'After', other: 'Photo' };
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -21,6 +23,9 @@ export default function TaskPhotos({ taskId, canAdd, hideIfEmpty }) {
     setPhotos(r.photos); setUnavailable(r.unavailable);
   }, [taskId]);
   useEffect(() => { load(); }, [load]);
+  const { items: queued } = useOfflineQueue();
+  const waiting = queued.length;
+  useEffect(() => { processQueue().then(load); }, [waiting]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (unavailable || photos === null) return null;
   if (hideIfEmpty && !photos.length && !canAdd) return null;
@@ -32,7 +37,11 @@ export default function TaskPhotos({ taskId, canAdd, hideIfEmpty }) {
     const file = res.assets[0];
     if (file.size && file.size > MAX_BYTES) { setError('That photo is over 10 MB. Pick a smaller one.'); return; }
     setBusy(kind);
-    try { await uploadPhoto(taskId, kind, file); await load(); } catch (e) { setError(e.message); } finally { setBusy(''); }
+    try { await uploadPhoto(taskId, kind, file); await load(); }
+    catch (e) {
+      if (isNetworkError(e)) { await enqueuePhoto(taskId, kind, file); setError(''); }      // no signal: keep it and send later
+      else setError(e.message);
+    } finally { setBusy(''); }
   }
 
   async function remove(p) {
@@ -56,6 +65,7 @@ export default function TaskPhotos({ taskId, canAdd, hideIfEmpty }) {
         ))}
       </View>
       <ErrorText>{error}</ErrorText>
+      <OfflineSyncBanner taskId={taskId} />
       {canAdd && (
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Button label={busy === 'before' ? 'Uploading…' : '+ Before'} variant="ghost" size="sm" style={{ flex: 1 }} disabled={!!busy} onPress={() => add('before')} />

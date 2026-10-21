@@ -8,12 +8,16 @@ import Tasks from './pages/Tasks';
 import Applications from './pages/Applications';
 import PersonalManagers from './pages/PersonalManagers';
 import AuditLog from './pages/AuditLog';
+import Escalations from './pages/Escalations';
+import Operations from './pages/Operations';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', component: Overview },
   { id: 'tasks', label: 'Task queue', component: Tasks },
+  { id: 'escalations', label: 'Escalations', component: Escalations },
   { id: 'applications', label: 'Applications', component: Applications },
   { id: 'pms', label: 'Personal Managers', component: PersonalManagers },
+  { id: 'ops', label: 'Operations', component: Operations },
   { id: 'audit', label: 'Audit log', component: AuditLog },
 ];
 

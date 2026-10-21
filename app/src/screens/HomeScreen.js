@@ -3,6 +3,7 @@ import { View, Text, TextInput, ScrollView, Pressable, StyleSheet } from 'react-
 import { colors, spacing, radius } from '../theme';
 import { Card, Button, FieldLabel, Badge, ErrorText, Input } from '../components/UI';
 import DynamicQuestions, { firstProblem } from '../components/DynamicQuestions';
+import { isValidDate } from '../data/extras';
 import { CATEGORIES, TEMPLATES, createTask, createBooking, listCatalogue, newRequestId, myTasks, tasksNow, useTasks, STATUS_META, catMeta, initials } from '../data/store';
 import { useAuth } from '../lib/AuthContext';
 import NotificationBell from '../components/NotificationBell';
@@ -35,6 +36,8 @@ export default function HomeScreen({ navigation, route }) {
   const [consent, setConsent] = useState(false);
   const [shareUpdates, setShareUpdates] = useState(false);
   const [contactName, setContactName] = useState('');
+  const [dateStr, setDateStr] = useState('');
+  const [timeStr, setTimeStr] = useState('');
   const [cart, setCart] = useState([]);                  // tasks already added to this booking
   const requestKey = useRef(newRequestId());              // the same across retries, so a retry cannot book twice
   useEffect(() => { listCatalogue().then(setCatalogue); }, []);
@@ -80,7 +83,8 @@ export default function HomeScreen({ navigation, route }) {
       category,
       task_type: taskType,
       schedule_kind: taskType === 'ongoing' ? 'multi_day' : 'single_day',
-      scheduled_for: when.trim() || 'Flexible',
+      scheduled_for: dateStr && timeStr ? new Date(`${dateStr}T${timeStr}:00`).toLocaleString() : when.trim() || 'Flexible',
+      scheduled_at: scheduledAtIso(),
       answers: service ? answers : {},
     };
   }
@@ -92,7 +96,19 @@ export default function HomeScreen({ navigation, route }) {
     setTitle(''); setDesc(''); setAnswers({}); setService(null); setOutcome(''); setSelectedTemplate(null); setCategory(CATEGORIES[0].id);
     setStep(1);
   }
+  // The appointment as a real time (the server checks it again). Empty = flexible.
+  function scheduleProblem() {
+    if (!dateStr && !timeStr) return null;
+    if (!isValidDate(dateStr)) return 'Enter the date as YYYY-MM-DD, for example 2026-11-28.';
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(timeStr)) return 'Enter the time as HH:MM in 24-hour time, for example 14:30.';
+    const at = new Date(`${dateStr}T${timeStr}:00`);
+    if (at.getTime() < Date.now() - 5 * 60000) return 'That date and time has already passed.';
+    if (at.getTime() > Date.now() + 365 * 864e5) return 'Choose a date within the next twelve months.';
+    return null;
+  }
+  const scheduledAtIso = () => (dateStr && timeStr && !scheduleProblem() ? new Date(`${dateStr}T${timeStr}:00`).toISOString() : null);
   function detailsProblem() {
+    const sp = scheduleProblem(); if (sp) return sp;
     if (!title.trim()) return 'Tell us what you need done.';
     if (service) { const p = firstProblem(service.definition.questions, answers); if (p) return p; }
     if (isOther && outcome.trim().length < 5) return 'Tell us the outcome you want, in a few words.';
@@ -127,14 +143,14 @@ export default function HomeScreen({ navigation, route }) {
       } catch (e) {
         if (!/latest database update/i.test(e.message) || items.length > 1) throw e;
         const task = await createTask({
-          title: title.trim(), category, description: desc.trim(), taskType, scheduledFor: when.trim() || 'Flexible', location: location.trim(),
+          title: title.trim(), category, description: desc.trim(), taskType, scheduledFor: dateStr && timeStr ? new Date(`${dateStr}T${timeStr}:00`).toLocaleString() : when.trim() || 'Flexible', location: location.trim(),
           forWhom, recipientName: forWhom === 'other' ? recipientName.trim() : null,
           recipientRelation: forWhom === 'other' ? recipientRelation.trim() || null : null,
           recipientPhone: forWhom === 'other' ? recipientPhone.trim() || null : null,
         }, user.id);
         firstTaskId = task.id;
       }
-      setTitle(''); setDesc(''); setCost(''); setRate(''); setWhen(''); setSelectedTemplate(null); setCart([]); setService(null); setAnswers({}); setOutcome('');
+      setTitle(''); setDesc(''); setCost(''); setRate(''); setWhen(''); setDateStr(''); setTimeStr(''); setSelectedTemplate(null); setCart([]); setService(null); setAnswers({}); setOutcome('');
       setRecipientName(''); setRecipientRelation(''); setRecipientPhone(''); setForWhom('self'); setConsent(false); setShareUpdates(false); setContactName('');
       requestKey.current = newRequestId();
       setStep(1);
@@ -175,6 +191,10 @@ export default function HomeScreen({ navigation, route }) {
             </Pressable>
           </View>
         </View>
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TodoPlus')} style={styles.plusBanner}>
+          <Text style={styles.plusText}>⭐ Todo+ Monthly Maintenance</Text>
+          <Text style={styles.plusSub}>See the plan ›</Text>
+        </Pressable>
         <Text style={styles.h1}>What do you need done?</Text>
         <Text style={styles.sub}>Every Personal Manager is ID-verified. Three quick steps.</Text>
         <View style={styles.stepper}>
@@ -328,8 +348,13 @@ export default function HomeScreen({ navigation, route }) {
               <Text style={[styles.reviewLine, { marginTop: 6 }]}>Several days does not mean your Personal Manager is there all day, every day. If the work turns out to need more days, you and our team approve the change first.</Text>
             </View>
             <View>
-              <FieldLabel>🗓 When?</FieldLabel>
-              <Input placeholder='e.g. "Sat 26 Aug, 11 AM" or "Any weekday evening"' value={when} onChangeText={setWhen} />
+              <FieldLabel>🗓 Date and time</FieldLabel>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 3 }}><Input placeholder="Date: 2026-11-28" value={dateStr} onChangeText={setDateStr} accessibilityLabel="Date, year-month-day" autoCapitalize="none" /></View>
+                <View style={{ flex: 2 }}><Input placeholder="Time: 14:30" value={timeStr} onChangeText={setTimeStr} accessibilityLabel="Time, 24-hour" autoCapitalize="none" /></View>
+              </View>
+              <Text style={[styles.reviewLine, { marginTop: 6 }]}>Leave both empty if you are flexible. Escalation to our team becomes available if your Personal Manager is more than 15 minutes late for a time you set.</Text>
+              <Input placeholder='Or in words, e.g. "Any weekday evening"' value={when} onChangeText={setWhen} style={{ marginTop: 8 }} />
             </View>
             <View>
               <FieldLabel>📍 Where?</FieldLabel>
@@ -383,7 +408,7 @@ export default function HomeScreen({ navigation, route }) {
             <Card style={{ gap: spacing.sm, backgroundColor: colors.accentLight, borderColor: colors.accent, borderWidth: 2 }}>
               <Text style={styles.reviewTitle}>{cat.emoji} {title}</Text>
               {!!desc.trim() && <Text style={styles.reviewLine}>{desc}</Text>}
-              <Text style={styles.reviewLine}>🗓 {when.trim() || 'Flexible'}</Text>
+              <Text style={styles.reviewLine}>🗓 {dateStr && timeStr ? new Date(`${dateStr}T${timeStr}:00`).toLocaleString() : when.trim() || 'Flexible'}</Text>
               <Text style={styles.reviewLine}>📍 {location}</Text>
               <Text style={styles.reviewLine}>{taskType === 'ongoing' ? '↻ Ongoing, multi-day' : 'One-time task'}</Text>
               {forWhom === 'other' && <Text style={styles.reviewLine}>For: {recipientName}{recipientRelation ? ` (${recipientRelation})` : ''}</Text>}
@@ -431,6 +456,9 @@ const styles = StyleSheet.create({
   hello: { fontSize: 16, fontWeight: '700', color: '#CFE3DF' },
   avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.brass, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontWeight: '800', color: colors.accentDark, fontSize: 16 },
+  plusBanner: { minHeight: 48, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.brass, borderRadius: 14, paddingHorizontal: 16, marginBottom: spacing.lg },
+  plusText: { fontSize: 15, fontWeight: '800', color: colors.accentDark },
+  plusSub: { fontSize: 14, fontWeight: '700', color: colors.accentDark },
   h1: { fontSize: 30, fontWeight: '800', color: '#FFFFFF', lineHeight: 36, letterSpacing: -0.3 },
   sub: { color: '#CFE3DF', fontSize: 16, lineHeight: 23, marginTop: 6, marginBottom: spacing.lg },
   stepper: { flexDirection: 'row', alignItems: 'flex-start' },

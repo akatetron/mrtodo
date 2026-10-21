@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 MIG=../migrations
-SUITES=(security_and_flow.sql features.sql overhaul_core.sql catalogue_scope.sql qualifications.sql)
+SUITES=(security_and_flow.sql features.sql overhaul_core.sql catalogue_scope.sql qualifications.sql routing.sql)
 
 apply() {   # apply <db> <file...>
   local db=$1; shift
@@ -43,6 +43,11 @@ for s in "${SUITES[@]}"; do
   apply "$db" "$MIG"/*.sql
   psql -qXAt -v ON_ERROR_STOP=1 -d "$db" -f "$s" | grep -v '^$' | grep "^ok" | wc -l | sed 's/^/   checks passed: /'
 done
+
+echo "== eight simultaneous claims on one task"
+db=$(mk conc)
+apply "$db" "$MIG"/*.sql
+./concurrency.sh "$db"
 
 echo "== upgrade from the deployed release (0001) with legacy data"
 db=$(mk legacy)

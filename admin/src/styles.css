@@ -126,3 +126,9 @@ tr.selected td { background: var(--teal-tint); }
 
 .login { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--teal-dark); }
 .login .card { width: 100%; max-width: 380px; padding: 28px; }
+
+/* SLA traffic lights: Warm Brass after 15 minutes unassigned, Danger Red when the customer escalated (red wins). */
+tr.sla-brass td { border-top: 2px solid var(--brass, #C9963B); border-bottom: 2px solid var(--brass, #C9963B); }
+tr.sla-brass td:first-child { border-left: 5px solid var(--brass, #C9963B); }
+tr.sla-red td { border-top: 2px solid var(--danger, #C0392B); border-bottom: 2px solid var(--danger, #C0392B); }
+tr.sla-red td:first-child { border-left: 5px solid var(--danger, #C0392B); }

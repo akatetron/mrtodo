@@ -6,6 +6,8 @@ import TaskPhotos from '../components/TaskPhotos';
 import { CustomerScopeChange } from '../components/ScopeChange';
 import { CustomerQuote } from '../components/QuoteFlow';
 import PmProfileCard from '../components/PmProfileCard';
+import EscalateCard from '../components/EscalateCard';
+import InAppCallButton from '../components/InAppCallButton';
 import {
   useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
   priceSummary, confirmTaskPrice, issueCompletionCode, tasksNow as useTasksNow,
@@ -100,6 +102,7 @@ export default function TrackTaskScreen({ route, navigation }) {
         ) : null;
       })()}
       {t.scheduleKind === 'multi_day' && <Badge label="Runs over several days" tone="brass" style={{ marginBottom: spacing.md }} />}
+      <EscalateCard t={t} />
       <CustomerScopeChange t={t} />
       <CustomerQuote t={t} />
       <PriceCard t={t} />
@@ -152,6 +155,7 @@ export default function TrackTaskScreen({ route, navigation }) {
               </Text>
             </View>
           </View>
+          <InAppCallButton t={t} />
           <PmProfileCard workerId={t.assignedWorkerId} />
         </Card>
       )}

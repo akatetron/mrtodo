@@ -5,6 +5,10 @@ import { Card, Badge, Button, FieldLabel, ErrorText, Input, Stars } from '../com
 import TaskPhotos from '../components/TaskPhotos';
 import { PmScopeChange } from '../components/ScopeChange';
 import { PmQuote } from '../components/QuoteFlow';
+import SwipeToConfirm from '../components/SwipeToConfirm';
+import OtpPinInput from '../components/OtpPinInput';
+import InAppCallButton from '../components/InAppCallButton';
+import { markArrived } from '../data/store';
 import {
   useTasks, getTask, catMeta, acceptTask, declineTask, startTask, logVisit, completeWithOtp, rateTask, COMPLETION_MESSAGES,
   visitsDone, STATUS_META, PM_SHARE, formatRating, initials,
@@ -27,8 +31,10 @@ export default function WorkerJobScreen({ route, navigation }) {
     try { await fn(); if (after) after(); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
+  const bar = t.status === 'matched' || t.status === 'assigned';
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.lg, paddingBottom: bar ? 150 : 60 }}>
       <Card style={{ marginBottom: spacing.md }}>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <Badge label={`${catMeta(t.category).emoji} ${catMeta(t.category).label}`} />
@@ -106,31 +112,15 @@ export default function WorkerJobScreen({ route, navigation }) {
         </View>
       )}
 
+      {['assigned', 'in_progress'].includes(t.status) && (
+        <Card style={{ marginBottom: spacing.md, gap: spacing.sm }}>
+          {!t.arrivedAt ? <Button label="I have arrived" onPress={() => run(() => markArrived(t.id))} disabled={busy} /> : <Badge label="Arrival recorded" tone="success" />}
+          <InAppCallButton t={t} />
+        </Card>
+      )}
       <PmScopeChange t={t} />
       <PmQuote t={t} />
       {t.status === 'in_progress' && <FinishTask t={t} />}
-
-      {t.status === 'matched' && (
-        <>
-          <Text style={styles.hint}>Review the details, then accept to confirm you'll do this task. Declining sends it back to the team to find someone else.</Text>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <Button label="Decline" variant="ghost" style={{ flex: 1 }} disabled={busy}
-              onPress={() => run(() => declineTask(t.id), () => navigation.goBack())} />
-            <Button label={busy ? 'Working…' : 'Accept task'} style={{ flex: 2 }} disabled={busy} onPress={() => run(() => acceptTask(t.id))} />
-          </View>
-        </>
-      )}
-
-      {t.status === 'assigned' && (
-        <>
-          <Text style={styles.hint}>When you arrive and begin, tap Start. The customer is notified.</Text>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <Button label="Can't make it" variant="ghost" style={{ flex: 1 }} disabled={busy}
-              onPress={() => run(() => declineTask(t.id, 'Withdrew after accepting'), () => navigation.goBack())} />
-            <Button label={busy ? 'Working…' : '▶ Start task'} style={{ flex: 2 }} disabled={busy} onPress={() => run(() => startTask(t.id))} />
-          </View>
-        </>
-      )}
 
       <ErrorText>{error}</ErrorText>
 
@@ -140,6 +130,28 @@ export default function WorkerJobScreen({ route, navigation }) {
         <Button label="Report a problem" variant="ghost" style={{ marginTop: spacing.md }} onPress={() => navigation.navigate('ReportProblem', { taskId: t.id })} />
       )}
     </ScrollView>
+    {bar && (
+      <View style={styles.bar} accessibilityRole="toolbar">
+        {t.status === 'matched' ? (
+          <>
+            <Text style={styles.barHint}>Accept to confirm you will do this task. Declining sends it back to the team.</Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Button label="Decline" variant="ghost" style={{ flex: 1 }} disabled={busy} onPress={() => run(() => declineTask(t.id), () => navigation.goBack())} />
+              <Button label={busy ? 'Working…' : 'Accept task'} style={{ flex: 2 }} disabled={busy} onPress={() => run(() => acceptTask(t.id))} />
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.barHint}>When you arrive and begin, tap Start. The customer is notified.</Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Button label="Can't make it" variant="ghost" style={{ flex: 1 }} disabled={busy} onPress={() => run(() => declineTask(t.id, 'Withdrew after accepting'), () => navigation.goBack())} />
+              <Button label={busy ? 'Working…' : '▶ Start task'} style={{ flex: 2 }} disabled={busy} onPress={() => run(() => startTask(t.id))} />
+            </View>
+          </>
+        )}
+      </View>
+    )}
+    </View>
   );
 }
 
@@ -164,39 +176,30 @@ function FinishTask({ t }) {
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const requestKey = React.useRef(`${t.id}-${Date.now()}`);     // one completion attempt = one key, so a retry cannot complete twice
 
-  async function confirmComplete() {
+  async function submit() {
+    if (otp.length !== 4) { setError('Enter the 4-digit code the customer shows you.'); return; }
     setError(''); setBusy(true);
     try {
-      const result = await completeWithOtp(t.id, otp.trim());
-      if (result === 'ok' || result === true) setOtp('');
-      else setError(COMPLETION_MESSAGES[result] || 'Could not complete the task. Try again.');
+      const result = await completeWithOtp(t.id, otp, requestKey.current);
+      if (result === 'ok' || result === true) { setOtp(''); return; }
+      setError(COMPLETION_MESSAGES[result] || 'Could not complete the task. Try again.');
+      if (result === 'wrong' || result === 'expired' || result === 'locked') setOtp('');
     } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
+      setError(/network|fetch/i.test(e.message) ? 'No connection. Nothing was submitted. Try again when you are back online.' : e.message);
+    } finally { setBusy(false); }
   }
 
   return (
-    <Card style={{ marginBottom: spacing.md }}>
-      <Text style={{ fontWeight: '700', fontSize: 14, marginBottom: 4, color: colors.text }}>Finish the task</Text>
-      <Text style={{ color: colors.muted, fontSize: 12.5, marginBottom: 12, lineHeight: 18 }}>
-        Once the customer is happy, ask for the 4-digit completion code in their app and enter it below.
+    <Card style={{ marginBottom: spacing.md, gap: spacing.md }}>
+      <Text style={{ fontWeight: '800', fontSize: 18, color: colors.text }}>Finish the task</Text>
+      <Text style={{ color: colors.muted, fontSize: 15, lineHeight: 22 }}>
+        1. Add a Before and an After photo above.{'\n'}2. When the customer is happy, ask them to show their completion code.{'\n'}3. Enter it and swipe to submit.
       </Text>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <TextInput
-          style={styles.otpInput}
-          placeholder="0000"
-          placeholderTextColor={colors.faint}
-          keyboardType="numeric"
-          maxLength={4}
-          value={otp}
-          onChangeText={setOtp}
-        />
-        <Button label={busy ? 'Checking…' : 'Confirm & complete'} onPress={confirmComplete} style={{ flex: 1 }} disabled={busy || otp.trim().length !== 4} />
-      </View>
+      <OtpPinInput value={otp} onChange={setOtp} />
       <ErrorText>{error}</ErrorText>
+      <SwipeToConfirm label="Swipe to submit completion" alternativeLabel="Submit completion" onConfirm={submit} busy={busy} disabled={otp.length !== 4} />
     </Card>
   );
 }
@@ -238,6 +241,8 @@ function Divider() {
 }
 
 const styles = StyleSheet.create({
+  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: spacing.lg, paddingBottom: spacing.xl, gap: 8, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
+  barHint: { fontSize: 14, color: colors.muted, lineHeight: 20 },
   title: { fontWeight: '800', fontSize: 17, marginBottom: 6, color: colors.text },
   desc: { color: colors.muted, fontSize: 13.5, lineHeight: 20 },
   hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18, marginBottom: 10 },
