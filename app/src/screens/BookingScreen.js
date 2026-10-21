@@ -160,6 +160,10 @@ export default function BookingScreen({ navigation, route }) {
   const confirmedTotal = list.reduce((sum, i) => sum + (fixed(i._price) ? Number(i._price.price) : 0), 0);
   const pending = list.filter((i) => !fixed(i._price)).length;
 
+  const barTitle = list.length > 1 ? `${list.length} tasks` : (list[0]?.title || (service ? service.definition.title : title.trim()) || 'Your request');
+  const barPrice = confirmedTotal && !pending ? `₹${confirmedTotal.toLocaleString('en-IN')}`
+    : confirmedTotal ? `₹${confirmedTotal.toLocaleString('en-IN')} + ${pending} to quote` : 'Quote required';
+
   if (!loaded && serviceId) return <View style={s.center}><Text style={s.muted}>Loading…</Text></View>;
   if (serviceId && loaded && !service) {
     return (
@@ -172,8 +176,8 @@ export default function BookingScreen({ navigation, route }) {
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView ref={scroller} keyboardShouldPersistTaps="handled" contentContainerStyle={{ width: '100%', maxWidth: maxContentWidth, alignSelf: 'center', paddingHorizontal: pad, paddingBottom: 140, paddingTop: 4 }}>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView ref={scroller} keyboardShouldPersistTaps="handled" contentContainerStyle={{ width: '100%', maxWidth: maxContentWidth, alignSelf: 'center', paddingHorizontal: pad, paddingBottom: 190, paddingTop: 4 }}>
         <ScreenHeader
           title={step === 3 ? 'Check your request' : step === 2 ? 'When and where would you like help?' : service ? service.definition.title : 'Tell us what you need'} onBack={back}
           subtitle={step === 3 ? 'Take a last look. Nothing is final until you send it.'
@@ -273,10 +277,14 @@ export default function BookingScreen({ navigation, route }) {
       </ScrollView>
 
       <View style={[s.bar, { paddingBottom: Math.max(insets.bottom, 12) + 4, paddingHorizontal: pad }]}>
-        <View style={{ flex: 1, maxWidth: maxContentWidth, alignSelf: 'center', flexDirection: 'row' }}>
-        {step < 3
-          ? <Button label="Continue" onPress={next} style={{ flex: 1 }} />
-          : <Button label={busy ? 'Sending…' : pending > 0 ? 'Send request' : 'Confirm booking'} onPress={submit} disabled={busy} style={{ flex: 1 }} />}
+        <View style={{ flex: 1, maxWidth: maxContentWidth, alignSelf: 'center', gap: 10 }}>
+          <View style={s.barSummary} accessibilityLiveRegion="polite">
+            <Text style={s.barTitle} numberOfLines={1}>{barTitle}</Text>
+            <Text style={s.barPrice} numberOfLines={1}>{barPrice}</Text>
+          </View>
+          {step < 3
+            ? <Button label="Continue" onPress={next} />
+            : <Button label={busy ? 'Sending…' : pending > 0 ? 'Send request' : 'Confirm booking'} onPress={submit} disabled={busy} />}
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -284,6 +292,9 @@ export default function BookingScreen({ navigation, route }) {
 }
 
 const s = StyleSheet.create({
+  barSummary: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
+  barTitle: { ...typo.body, fontWeight: '700', color: colors.text, flex: 1 },
+  barPrice: { ...typo.service, color: colors.brassDark },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: colors.bg },
   h2: { ...typo.h2, color: colors.text, textAlign: 'center' },
   body: { ...typo.body, color: colors.text },
