@@ -9,9 +9,10 @@ import PmProfileCard from '../components/PmProfileCard';
 import EscalateCard from '../components/EscalateCard';
 import TaskNextStep from '../components/concierge/TaskNextStep';
 import InAppCallButton from '../components/InAppCallButton';
+import { PriceBreakdown } from '../components/pricing/PricingParts';
 import {
   useTasks, getTask, catMeta, visitsDone, runningTotal, STATUS_META, shortId, formatRating, cancelTask, rateTask,
-  priceSummary, confirmTaskPrice, issueCompletionCode, tasksNow as useTasksNow,
+  priceSummary, priceStateLabel, confirmTaskPrice, issueCompletionCode, tasksNow as useTasksNow,
 } from '../data/store';
 
 const STATUS_COPY = {
@@ -271,9 +272,12 @@ function PriceCard({ t }) {
   }
   return (
     <Card style={{ marginBottom: spacing.lg, gap: spacing.sm }}>
-      <FieldLabel>Price</FieldLabel>
+      <FieldLabel>{priceStateLabel(t) || 'Price'}</FieldLabel>
       <Text style={styles.h2}>{p.label}</Text>
-      <Text style={styles.mutedSmall}>{p.detail}</Text>
+      <Text style={styles.mutedSmall}>{t.pricingState === 'estimated' ? 'An estimate from the time you expected, not a guaranteed price. The final charge is confirmed after the task is done.' : p.detail}</Text>
+      {(t.finalBreakdown?.available || t.pricingBreakdown?.available) && t.pricingState !== 'quote_pending' && (
+        <PriceBreakdown breakdown={t.finalBreakdown?.available ? t.finalBreakdown : t.pricingBreakdown} state={t.finalBreakdown?.available ? 'final' : t.pricingState === 'estimated' ? 'estimated' : null} title="How this is worked out" />
+      )}
       {t.priceStatus === 'awaiting_confirmation' && <Button label="Confirm this price" onPress={confirm} disabled={busy} />}
       <ErrorText>{error}</ErrorText>
     </Card>

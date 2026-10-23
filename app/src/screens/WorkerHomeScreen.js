@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../lib/AuthContext';
 import NotificationBell from '../components/NotificationBell';
 import PmFeed from '../components/PmFeed';
+import PmOffers from '../components/PmOffers';
 import { docExpiry, expiryText } from '../data/extras';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -87,6 +88,13 @@ export default function WorkerHomeScreen({ navigation }) {
         </Pressable>
       ))}
 
+      {me.worker_status === 'approved' && <PmOffers onAccepted={(o) => navigation.navigate('WorkerJob', { taskId: o.task_id })} />}
+      {me.worker_status === 'approved' && (
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Availability')} style={{ minHeight: 56, paddingHorizontal: 16, marginBottom: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, justifyContent: 'center' }}>
+          <Text style={{ fontWeight: '700', fontSize: 16, color: colors.text }}>Availability, vehicle and regions</Text>
+          <Text style={{ fontSize: 14, color: colors.muted }}>Working hours decide which tasks we offer you</Text>
+        </Pressable>
+      )}
       {me.worker_status === 'approved' && <PmFeed gold={me.tier === 'gold'} onClaimed={(t) => navigation.navigate('WorkerJob', { taskId: t.id })} />}
 
       <View style={styles.statRow}>

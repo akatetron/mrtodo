@@ -2,7 +2,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { resetStore, setStoreUser } from '../data/store';
-import { PROFILE_COLUMNS } from './errors';
+import { PROFILE_COLUMNS, PROFILE_EXTRA_COLUMNS } from './errors';
 import { startNotifications, stopNotifications } from '../data/extras';
 
 const AuthContext = createContext(null);
@@ -20,8 +20,9 @@ export function AuthProvider({ children }) {
 
   const refreshProfile = useCallback(async () => {
     if (!userId) return;
-    const { data } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', userId).single();
-    setProfile(data);
+    let res = await supabase.from('profiles').select(`${PROFILE_COLUMNS},${PROFILE_EXTRA_COLUMNS}`).eq('id', userId).single();
+    if (res.error && /column|does not exist/i.test(res.error.message || '')) res = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', userId).single();   // database not updated yet
+    setProfile(res.data);
   }, [userId]);
 
   // Load the profile, and keep it live so a PM sees "approved" the moment an

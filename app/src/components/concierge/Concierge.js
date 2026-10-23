@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Image, Pressable, Animated, AccessibilityInfo, StyleSheet } from 'react-native';
 import { colors, spacing, radius, typo } from '../../theme';
 import AppIcon from '../AppIcon';
+import { formatMoney } from '../../lib/money';
 import { servicePhotos } from '../../assets/servicePhotos';
 
 // ---- artwork and photography ---------------------------------------------------------------
@@ -186,7 +187,7 @@ export function FamilyBookingEntry({ onPress, active, onClear, name }) {
 export function PriceOrQuoteSummary({ pricing, compact }) {
   const p = pricing || {};
   const fixed = p.approach === 'fixed';
-  const label = fixed ? `Fixed price ₹${Number(p.price).toLocaleString('en-IN')}`
+  const label = fixed ? `Fixed price ${formatMoney(p.price, p.currency)}`
     : p.approach === 'estimate_approval' ? 'Estimate, then your approval' : 'Quote required';
   const note = fixed ? null : 'We set the price after we review your request. You confirm it before any work starts.';
   return (

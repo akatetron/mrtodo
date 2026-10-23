@@ -14,6 +14,8 @@ export const UPDATE_HINT = 'This part needs the latest database update. Run the 
 // The profile columns an app may read. phone and email are deliberately absent:
 // the database does not allow them (use my_contact() for your own, and the
 // admin tools for anyone else's).
+// Added by migration 0014. A database that has not been updated yet does not have them, so they are requested separately.
+export const PROFILE_EXTRA_COLUMNS = ['vehicles', 'travel_available', 'region_codes'];
 export const PROFILE_COLUMNS = [
   'id', 'full_name', 'role', 'rating', 'rating_count', 'categories', 'jobs_done', 'distance_km', 'online',
   'created_at', 'bio', 'experience_years', 'service_area', 'worker_status', 'application_note', 'applied_at',

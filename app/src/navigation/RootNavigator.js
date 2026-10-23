@@ -37,6 +37,7 @@ import BookingScreen from '../screens/BookingScreen';
 import AdminEscalationsScreen from '../screens/admin/AdminEscalationsScreen';
 import AdminPlansScreen from '../screens/admin/AdminPlansScreen';
 import MyTasksScreen from '../screens/MyTasksScreen';
+import PmAvailabilityScreen from '../screens/PmAvailabilityScreen';
 import CustomerTabBar from '../components/CustomerTabBar';
 import AdminOpsScreen from '../screens/admin/AdminOpsScreen';
 
@@ -86,6 +87,7 @@ function WorkerNavigator() {
       <WorkerStack.Screen name="WorkerHome" component={WorkerHomeScreen} options={{ title: 'Personal Manager' }} />
       <WorkerStack.Screen name="WorkerJob" component={WorkerJobScreen} options={{ title: 'Task details' }} />
       <WorkerStack.Screen name="Account" component={AccountScreen} options={{ title: 'Your account' }} />
+      <WorkerStack.Screen name="Availability" component={PmAvailabilityScreen} options={{ title: 'Availability' }} />
       <WorkerStack.Screen name="Skills" component={PmSkillsScreen} options={{ title: 'Your skills' }} />
       <WorkerStack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
       <WorkerStack.Screen name="ReportProblem" component={ReportProblemScreen} options={{ title: 'Report a problem' }} />

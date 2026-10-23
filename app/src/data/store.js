@@ -8,6 +8,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { supabase } from '../lib/supabase';
 import { isMissingFeature, UPDATE_HINT } from '../lib/errors';
+import { formatMoney } from '../lib/money';
 
 export const CATEGORIES = [
   { id: 'handyman', label: 'Handyman', emoji: '🔧' },
@@ -91,6 +92,14 @@ function mapTask(row, visits) {
     isPremium: !!row.is_premium,
     routingMode: row.routing_mode || 'admin',
     estDurationMinutes: row.est_duration_minutes || null,
+    regionCode: row.region_code || null,
+    estMinutes: row.est_minutes || null,
+    quantity: row.quantity || 1,
+    pricingState: row.pricing_state || 'none',
+    pricingBreakdown: row.pricing_breakdown || null,
+    finalAmount: row.final_amount == null ? null : Number(row.final_amount),
+    finalBreakdown: row.final_breakdown || null,
+    assignmentState: row.assignment_state || 'none',
     priceApprovedAt: row.price_approved_at || null,
     assignedWorkerId: row.assigned_worker_id,
     customerId: row.customer_id,
@@ -332,9 +341,8 @@ export async function listTemplates() {
 //   admin price, waiting   -> "₹750 · confirm to go ahead"
 //   no price yet           -> "Price being set"
 export function priceSummary(t) {
-  const amount = t.taskType === 'ongoing' ? t.ratePerDay : t.estCost;
-  const sym = (t.currency || 'INR') === 'INR' ? '₹' : `${t.currency} `;
-  const money = amount == null ? null : `${sym}${Number(amount).toLocaleString('en-IN')}${t.taskType === 'ongoing' ? '/day' : ''}`;
+  const amount = t.taskType === 'ongoing' ? t.ratePerDay : (t.finalAmount ?? t.estCost);
+  const money = amount == null ? null : `${formatMoney(amount, t.currency)}${t.taskType === 'ongoing' ? '/day' : ''}`;
   if (t.priceStatus === 'awaiting_approval' || amount == null) {
     return { label: 'Price being set', detail: 'Our team prices tasks like this one, usually within a few minutes. You confirm it before work starts.', tone: 'neutral', amount: null };
   }
@@ -342,6 +350,15 @@ export function priceSummary(t) {
     return { label: money, detail: 'Waiting for you to confirm this price.', tone: 'brass', amount: money };
   }
   return { label: money, detail: t.priceSource === 'template' ? 'Standard price' : 'Price confirmed', tone: 'success', amount: money };
+}
+
+// The honest name of a price: an estimate is not a guarantee, a quote is not agreed until approved.
+export function priceStateLabel(t) {
+  if (t.pricingState === 'final' || t.finalAmount != null) return 'Final charge';
+  if (t.pricingState === 'estimated') return 'Estimated price';
+  if (t.pricingState === 'quote_pending') return t.priceStatus === 'awaiting_confirmation' ? 'Quote awaiting your approval' : 'Quote awaiting approval';
+  if (t.pricingState === 'approved') return 'Approved price';
+  return null;
 }
 
 // ---- contact details (never part of a profile or task any more) ------------------
