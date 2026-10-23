@@ -6,13 +6,13 @@ import { View, Text, StyleSheet } from 'react-native';
 import { colors, spacing } from '../theme';
 import { Card, Badge, Button, FieldLabel, Input, ErrorText, Chip } from './UI';
 import { listQuotes, proposeQuote, decideQuoteAdmin, decideQuoteCustomer } from '../data/store';
+import { formatMoney } from '../lib/money';
 
 const KINDS = [['management_fee', 'Management fee'], ['specialist', 'Specialist'], ['extra_work', 'Extra work'], ['tax', 'Tax'], ['discount', 'Discount']];
 const STATUS = {
   proposed: ['Waiting for our team', 'brass'], admin_approved: ['Waiting for the customer', 'brass'], customer_approved: ['Agreed', 'success'],
   rejected: ['Not agreed', 'danger'], superseded: ['Replaced', 'neutral'], withdrawn: ['Withdrawn', 'neutral'],
 };
-const money = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
 
 function useQuotes(taskId, deps) {
   const [quotes, setQuotes] = useState([]);
@@ -24,8 +24,8 @@ function useQuotes(taskId, deps) {
 function Lines({ q }) {
   return (
     <View style={{ gap: 2 }}>
-      {(q.components || []).map((c, i) => <Text key={i} style={styles.line}>{c.label}: {money(c.amount)}</Text>)}
-      <Text style={[styles.line, { fontWeight: '800' }]}>Total: {money(q.total)}{q.base_total != null ? ` (was ${money(q.base_total)})` : ''}</Text>
+      {(q.components || []).map((c, i) => <Text key={i} style={styles.line}>{c.label}: {formatMoney(c.amount, q.currency)}</Text>)}
+      <Text style={[styles.line, { fontWeight: '800' }]}>Total: {formatMoney(q.total, q.currency)}{q.base_total != null ? ` (was ${formatMoney(q.base_total, q.currency)})` : ''}</Text>
     </View>
   );
 }
@@ -39,7 +39,7 @@ export function QuoteHistory({ t }) {
       <Text style={styles.h2}>Price history</Text>
       {past.map((q) => (
         <View key={q.id} style={{ gap: 2 }}>
-          <Text style={styles.line}>Version {q.version} · {STATUS[q.status][0]} · {money(q.total)}</Text>
+          <Text style={styles.line}>Version {q.version} · {STATUS[q.status][0]} · {formatMoney(q.total, q.currency)}</Text>
         </View>
       ))}
     </Card>

@@ -11,6 +11,9 @@ import DynamicQuestions, { firstProblem } from '../components/DynamicQuestions';
 import { BookForSomeoneElseSection, BookingStepHeader, InlineValidationMessage } from '../components/discover/BookingParts';
 import { ScreenHeader } from '../components/discover/Discover';
 import { PriceOrQuoteSummary } from '../components/concierge/Concierge';
+import { RegionPicker, Stepper, DurationField, EstimateCard, PriceBreakdown, SlotPicker } from '../components/pricing/PricingParts';
+import { useRegions, useEstimate } from '../data/pricing';
+import { formatMoney, totalsByCurrency, formatTotals } from '../lib/money';
 import { useCatalogue } from '../data/useCatalogue';
 import { useBookingDraft, patchDraft, addToCart, removeFromCart, resetDraft, getDraft } from '../data/bookingDraft';
 import { isValidDate } from '../data/extras';
@@ -46,6 +49,10 @@ export default function BookingScreen({ navigation, route }) {
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
   const [when, setWhen] = useState('');
+  const { regions } = useRegions();
+  const [minutes, setMinutes] = useState(() => (service?.definition?.duration_minutes ? String(service.definition.duration_minutes) : ''));
+  const [qty, setQty] = useState(1);
+  const [slot, setSlot] = useState(null);
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -53,10 +60,19 @@ export default function BookingScreen({ navigation, route }) {
   useEffect(() => { scroller.current?.scrollTo({ y: 0, animated: false }); }, [step]);
   useEffect(() => { if (prefill && !draft.location) patchDraft({ location: prefill.location || '' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => { if (regions.length === 1 && !draft.region) patchDraft({ region: regions[0].code }); }, [regions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const minutesNum = Number(minutes) || null;
+  const { estimate, loading: estimating } = useEstimate(service?.id, draft.region, minutesNum, qty);
+  useEffect(() => { setSlot(null); }, [dateStr, draft.region, minutesNum]);
   const recentPlaces = [...new Set(myTasks(user?.id).map((t) => t.location).filter(Boolean))].slice(0, 3);
   const someone = { forWhom: draft.forWhom, recipientName: draft.recipientName, recipientRelation: draft.recipientRelation, recipientPhone: draft.recipientPhone, consent: draft.consent, shareUpdates: draft.shareUpdates, contactName: draft.contactName };
 
   function scheduleProblem() {
+    if (draft.region) {
+      if (!dateStr) return null;
+      if (!isValidDate(dateStr)) return 'Enter the date as YYYY-MM-DD, for example 2026-11-28.';
+      return slot ? null : 'Choose one of the available times.';
+    }
     if (!dateStr && !timeStr) return null;
     if (!isValidDate(dateStr)) return 'Enter the date as YYYY-MM-DD, for example 2026-11-28.';
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(timeStr)) return 'Enter the time as HH:MM in 24-hour time, for example 14:30.';
@@ -65,10 +81,11 @@ export default function BookingScreen({ navigation, route }) {
     if (at.getTime() > Date.now() + 365 * 864e5) return 'Choose a date within the next twelve months.';
     return null;
   }
-  const atIso = () => (dateStr && timeStr && !scheduleProblem() ? new Date(`${dateStr}T${timeStr}:00`).toISOString() : null);
+  const atIso = () => (slot ? slot.iso : !draft.region && dateStr && timeStr && !scheduleProblem() ? new Date(`${dateStr}T${timeStr}:00`).toISOString() : null);
 
   function detailsErrors() {
     const e = {};
+    if (regions.length && !draft.region) e.region = 'Choose where the task is.';
     if (service) { const p = firstProblem(service.definition.questions, answers); if (p) e.answers = p; }
     else {
       if (title.trim().length < 3) e.title = 'Tell us briefly what you need done.';
@@ -105,10 +122,14 @@ export default function BookingScreen({ navigation, route }) {
       category: service ? service.category : 'general',
       task_type: multiDay ? 'ongoing' : 'one-time',
       schedule_kind: multiDay ? 'multi_day' : 'single_day',
-      scheduled_for: dateStr && timeStr ? new Date(`${dateStr}T${timeStr}:00`).toLocaleString() : when.trim() || 'Flexible',
+      scheduled_for: slot ? slot.label : dateStr && timeStr ? new Date(`${dateStr}T${timeStr}:00`).toLocaleString() : when.trim() || 'Flexible',
+      region_code: draft.region || null,
+      est_minutes: minutesNum,
+      quantity: qty,
       scheduled_at: atIso(),
       answers: service ? answers : {},
       _price: service ? service.definition.pricing : null,
+      _estimate: service && estimate && estimate.available ? estimate : null,
     };
   }
   const current = () => item();
@@ -131,7 +152,7 @@ export default function BookingScreen({ navigation, route }) {
     const d = getDraft();
     try {
       let firstId;
-      const clean = items.map(({ _price, ...rest }) => rest);
+      const clean = items.map(({ _price, _estimate, ...rest }) => rest);
       try {
         const bookingId = await createBooking(clean, {
           location: d.location.trim(), for_whom: d.forWhom, recipient_name: d.recipientName.trim(), recipient_relation: d.recipientRelation.trim(),
@@ -155,14 +176,16 @@ export default function BookingScreen({ navigation, route }) {
   }
 
   const fixed = (p) => p?.approach === 'fixed';
-  const priceLine = (p) => (fixed(p) ? `Fixed price ₹${Number(p.price).toLocaleString('en-IN')}` : 'Price set after we review your request. You confirm it before any work starts.');
+  // What each task will cost, if it is known now: a rule estimate, or a published fixed price. Otherwise a quote follows.
+  const itemMoney = (i) => (i._estimate && i._estimate.status === 'estimated' ? { currency: i._estimate.currency, amount: Number(i._estimate.total) }
+    : !i._estimate && fixed(i._price) ? { currency: i._price.currency || 'INR', amount: Number(i._price.price) } : null);
   const list = all();
-  const confirmedTotal = list.reduce((sum, i) => sum + (fixed(i._price) ? Number(i._price.price) : 0), 0);
-  const pending = list.filter((i) => !fixed(i._price)).length;
-
+  const totals = totalsByCurrency(list.map((i) => itemMoney(i) || { currency: 'INR', amount: null }));
+  const pending = list.filter((i) => !itemMoney(i)).length;
+  const confirmedTotal = Object.keys(totals).length;
   const barTitle = list.length > 1 ? `${list.length} tasks` : (list[0]?.title || (service ? service.definition.title : title.trim()) || 'Your request');
-  const barPrice = confirmedTotal && !pending ? `₹${confirmedTotal.toLocaleString('en-IN')}`
-    : confirmedTotal ? `₹${confirmedTotal.toLocaleString('en-IN')} + ${pending} to quote` : 'Quote required';
+  const barPrice = confirmedTotal && !pending ? formatTotals(totals)
+    : confirmedTotal ? `${formatTotals(totals)} + ${pending} to quote` : 'Quote required';
 
   if (!loaded && serviceId) return <View style={s.center}><Text style={s.muted}>Loading…</Text></View>;
   if (serviceId && loaded && !service) {
@@ -191,13 +214,18 @@ export default function BookingScreen({ navigation, route }) {
               <>
                 {!!service.definition.instructions && <Text style={s.body}>{service.definition.instructions}</Text>}
                 {!!service.definition.safety_notes && <View style={s.note}><Text style={s.noteText}>{service.definition.safety_notes}</Text></View>}
-                <PriceOrQuoteSummary pricing={service.definition.pricing} />
+                {!estimate?.available && <PriceOrQuoteSummary pricing={service.definition.pricing} />}
+                {regions.length > 0 && <RegionPicker regions={regions} value={draft.region} onChange={(c) => { patchDraft({ region: c }); setErrors({}); }} error={errors.region} />}
+                {!!draft.region && (estimate?.needs_duration || estimate?.reason === 'duration_required') && <DurationField value={minutes} onChange={setMinutes} />}
+                {!!draft.region && estimate?.qty_enabled && <Stepper label={`Quantity (${estimate.qty_unit || 'units'})`} value={qty} onChange={setQty} min={estimate.qty_min || 1} max={estimate.qty_max || 1000} />}
+                {!!draft.region && !['not_rule_priced', 'no_region', 'no_service'].includes(estimate?.reason) && <EstimateCard estimate={estimate} loading={estimating} />}
                 <DynamicQuestions questions={service.definition.questions} answers={answers} onChange={(a) => { setAnswers(a); setErrors({}); }} />
                 <InlineValidationMessage>{errors.answers}</InlineValidationMessage>
                 <View><FieldLabel>Anything else we should know? (optional)</FieldLabel><Input multiline value={extra} onChangeText={setExtra} /></View>
               </>
             ) : (
               <>
+                {regions.length > 0 && <RegionPicker regions={regions} value={draft.region} onChange={(c) => { patchDraft({ region: c }); setErrors({}); }} error={errors.region} />}
                 <View><FieldLabel>What do you need done?</FieldLabel><Input value={title} onChangeText={(v) => { setTitle(v); setErrors({}); }} placeholder="e.g. Help sorting my father’s paperwork" /><InlineValidationMessage>{errors.title}</InlineValidationMessage></View>
                 <View><FieldLabel>What outcome do you want?</FieldLabel><Input multiline value={outcome} onChangeText={setOutcome} placeholder="How will you know it is done?" /><InlineValidationMessage>{errors.outcome}</InlineValidationMessage></View>
                 <View><FieldLabel>More context (optional)</FieldLabel><Input multiline value={context} onChangeText={setContext} placeholder="Anything that helps us decide who can help" /></View>
@@ -226,10 +254,17 @@ export default function BookingScreen({ navigation, route }) {
             </View>
             <View>
               <FieldLabel>Date and time</FieldLabel>
+              {draft.region ? (
+                <View style={{ gap: 10 }}>
+                  <Input placeholder="2026-11-28" value={dateStr} onChangeText={(v) => { setDateStr(v); setErrors({}); }} accessibilityLabel="Date, year-month-day" autoCapitalize="none" />
+                  <SlotPicker region={draft.region} date={isValidDate(dateStr) ? dateStr : ''} minutes={minutesNum} value={slot} onPick={(x) => { setSlot(x); setErrors({}); }} />
+                </View>
+              ) : (
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <View style={{ flex: 3 }}><Input placeholder="2026-11-28" value={dateStr} onChangeText={(v) => { setDateStr(v); setErrors({}); }} accessibilityLabel="Date, year-month-day" autoCapitalize="none" /></View>
                 <View style={{ flex: 2 }}><Input placeholder="14:30" value={timeStr} onChangeText={(v) => { setTimeStr(v); setErrors({}); }} accessibilityLabel="Time, 24-hour" autoCapitalize="none" /></View>
               </View>
+              )}
               <InlineValidationMessage>{errors.schedule}</InlineValidationMessage>
               <Text style={[s.muted, { marginTop: 6 }]}>Leave empty if you are flexible. If you set a time and your Personal Manager is more than 15 minutes late, you can ask our team to step in.</Text>
               <Input placeholder="Or in words, e.g. any weekday evening" value={when} onChangeText={setWhen} style={{ marginTop: 8 }} />
@@ -255,7 +290,7 @@ export default function BookingScreen({ navigation, route }) {
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={s.service}>{i.title}</Text>
                   <Text style={s.muted}>{i.scheduled_for}{i.schedule_kind === 'multi_day' ? ' · several days' : ''}</Text>
-                  {i._price ? <PriceOrQuoteSummary pricing={i._price} compact /> : <Text style={s.price}>Quote required</Text>}
+                  {i._estimate ? <Text style={s.price}>{i._estimate.status === 'estimated' ? `Estimated ${formatMoney(i._estimate.total, i._estimate.currency)}` : 'Quote required'}</Text> : i._price ? <PriceOrQuoteSummary pricing={i._price} compact /> : <Text style={s.price}>Quote required</Text>}
                 </View>
                 {draft.cart.length > 0 && idx < draft.cart.length && <Button label="Remove" size="sm" variant="ghost" onPress={() => removeFromCart(idx)} />}
               </View>
@@ -267,7 +302,7 @@ export default function BookingScreen({ navigation, route }) {
               </View>
             </View>
             <View style={s.totalBox}>
-              <Text style={s.service}>{confirmedTotal ? `Fixed prices: ₹${confirmedTotal.toLocaleString('en-IN')}` : 'No price set yet'}</Text>
+              <Text style={s.service}>{confirmedTotal ? `Estimated and fixed prices: ${formatTotals(totals)}` : 'No price set yet'}</Text>
               {pending > 0 && <Text style={s.muted}>{pending} task{pending === 1 ? '' : 's'} will be priced after we review. You confirm each price before work starts. Posting is free.</Text>}
             </View>
             {!resume && <Button label="Add another task to this booking" variant="ghost" onPress={addAnother} />}

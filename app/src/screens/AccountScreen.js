@@ -7,6 +7,7 @@ import { myContact, updateMyProfile, formatRating, catMeta, listMyDocuments, upl
 import { docExpiry, expiryText, isValidDate } from '../data/extras';
 import { useAuth } from '../lib/AuthContext';
 import AccountExtras from '../components/AccountExtras';
+import GenderCard from '../components/GenderCard';
 
 const ROLE_LABEL = { customer: 'Customer', worker: 'Personal Manager', admin: 'Admin' };
 
@@ -63,6 +64,7 @@ export default function AccountScreen({ navigation }) {
 
       {profile.role === 'worker' && profile.worker_status === 'approved' && <Documents profile={profile} />}
 
+      <GenderCard />
       <AccountExtras profile={profile} refreshProfile={refreshProfile} signOut={signOut} />
 
       <Button label="Sign out" variant="danger" onPress={signOut} />

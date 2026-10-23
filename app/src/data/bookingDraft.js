@@ -6,7 +6,7 @@ import { newRequestId } from './store';
 
 const blank = () => ({
   cart: [],                 // tasks already added to this booking
-  location: '', point: null,
+  location: '', point: null, region: null,
   forWhom: 'self', recipientName: '', recipientRelation: '', recipientPhone: '',
   consent: false, shareUpdates: false, contactName: '',
   requestKey: newRequestId(),   // the same across retries, so a retry cannot book twice

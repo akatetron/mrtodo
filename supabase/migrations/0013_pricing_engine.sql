@@ -250,7 +250,7 @@ begin
     'currency', r.currency, 'minor_units', p_minor,
     'rule', jsonb_build_object('id', r.id, 'version', r.version, 'model', r.model),
     'minutes', jsonb_build_object('requested', p_minutes, 'billable', mm),
-    'quantity', q, 'unit_total', unit_total,
+    'quantity', q, 'unit_total', unit_total, 'needs_duration', r.model <> 'flat', 'qty_enabled', r.qty_enabled, 'qty_unit', r.qty_unit, 'qty_min', r.qty_min, 'qty_max', r.qty_max,
     'lines', lines || discl || case when travel_line is null then '[]'::jsonb else jsonb_build_array(travel_line) end,
     'gross', gross, 'discount_total', -disc_total, 'travel_total', travel, 'total', total,
     'reasons', to_jsonb(reasons), 'messages', to_jsonb(msgs));
@@ -279,6 +279,9 @@ begin
   end if;
   r := pricing_rule_at(p_service, p_region, p_at);
   if r.id is null then
+    if not exists (select 1 from pricing_rules where service_id = p_service and status in ('active', 'retired')) then   -- this service is not priced by rules at all
+      return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'not_rule_priced', 'message', 'This service keeps its published price.');
+    end if;
     return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'no_rule', 'message', 'This service has no published rate for your region, so we will review your request and send a quote.');
   end if;
   if r.currency <> reg.currency then

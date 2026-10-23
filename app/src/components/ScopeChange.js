@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { colors, spacing } from '../theme';
 import { Card, Badge, Button, FieldLabel, Input, ErrorText } from './UI';
+import { formatMoney } from '../lib/money';
 import {
   listScopeChanges, requestMultidayChange, withdrawScopeChange, decideScopeChangeAdmin, decideScopeChangeCustomer,
 } from '../data/store';
@@ -20,7 +21,6 @@ function useChanges(taskId, scopeVersion) {
   return [changes, reload];
 }
 
-const money = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
 function Visits({ c }) {
   return (
     <View style={{ gap: 2 }}>
@@ -46,7 +46,7 @@ export function CustomerScopeChange({ t }) {
       <Text style={styles.line}>Reason: {open.reason}</Text>
       <Visits c={open} />
       <Text style={styles.line}>
-        {open.approved_price_impact > 0 ? `Extra cost: ${money(open.approved_price_impact)}. ` : 'No extra cost. '}
+        {open.approved_price_impact > 0 ? `Extra cost: ${formatMoney(open.approved_price_impact, t.currency)}. ` : 'No extra cost. '}
         Our team has checked this. Nothing changes unless you agree.
       </Text>
       <Button label="Agree to the change" onPress={() => decide(true)} disabled={busy} />
@@ -131,7 +131,7 @@ export function AdminScopeChange({ t }) {
       <Badge label={STATUS[c.status][0]} tone={STATUS[c.status][1]} />
       <Text style={styles.line}>Reason: {c.reason}</Text>
       <Visits c={c} />
-      <Text style={styles.line}>PM suggests extra cost: {c.price_impact != null ? money(c.price_impact) : 'none stated'}</Text>
+      <Text style={styles.line}>PM suggests extra cost: {c.price_impact != null ? formatMoney(c.price_impact, t.currency) : 'none stated'}</Text>
       {open ? (
         <>
           <View><FieldLabel>Extra cost the customer will be asked to approve (₹)</FieldLabel><Input keyboardType="numeric" value={price} onChangeText={setPrice} placeholder={c.price_impact != null ? String(c.price_impact) : '0'} /></View>

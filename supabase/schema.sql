@@ -15,6 +15,7 @@
 --   0012_regions_hours_schedules.sql
 --   0013_pricing_engine.sql
 --   0014_vehicles_matching_offers.sql
+--   0015_app_support.sql
 
 -- ============================================================================
 -- migration: 0001_foundation.sql
@@ -5028,7 +5029,7 @@ begin
     'currency', r.currency, 'minor_units', p_minor,
     'rule', jsonb_build_object('id', r.id, 'version', r.version, 'model', r.model),
     'minutes', jsonb_build_object('requested', p_minutes, 'billable', mm),
-    'quantity', q, 'unit_total', unit_total,
+    'quantity', q, 'unit_total', unit_total, 'needs_duration', r.model <> 'flat', 'qty_enabled', r.qty_enabled, 'qty_unit', r.qty_unit, 'qty_min', r.qty_min, 'qty_max', r.qty_max,
     'lines', lines || discl || case when travel_line is null then '[]'::jsonb else jsonb_build_array(travel_line) end,
     'gross', gross, 'discount_total', -disc_total, 'travel_total', travel, 'total', total,
     'reasons', to_jsonb(reasons), 'messages', to_jsonb(msgs));
@@ -5057,6 +5058,9 @@ begin
   end if;
   r := pricing_rule_at(p_service, p_region, p_at);
   if r.id is null then
+    if not exists (select 1 from pricing_rules where service_id = p_service and status in ('active', 'retired')) then   -- this service is not priced by rules at all
+      return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'not_rule_priced', 'message', 'This service keeps its published price.');
+    end if;
     return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'no_rule', 'message', 'This service has no published rate for your region, so we will review your request and send a quote.');
   end if;
   if r.currency <> reg.currency then
@@ -5995,3 +5999,35 @@ grant execute on function public.set_service_vehicle(uuid, text[]), public.set_p
   public.task_assignment_report(uuid), public.pm_task_feed(int), public.claim_task(uuid), public.assign_task(uuid, uuid) to authenticated;
 -- The scheduler runs as the service role.
 grant execute on function public.process_offers(), public.dispatch_offer(uuid) to service_role;
+
+-- ============================================================================
+-- migration: 0015_app_support.sql
+-- ============================================================================
+-- 0015 — small functions the apps need. Safe to run more than once. Depends on 0001-0014.
+
+-- Time off is typed in the Personal Manager's local time ("2026-11-09 14:00"), and the database
+-- turns it into an instant using the time zone of the region they serve (or the default zone).
+create or replace function public.add_pm_block_local(p_worker uuid, p_start text, p_end text, p_kind text default 'time_off', p_note text default null)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare w uuid := coalesce(p_worker, auth.uid()); tz text; s timestamptz; e timestamptz;
+begin
+  if w is distinct from auth.uid() and not is_admin() then raise exception 'You can only change your own schedule.'; end if;
+  if not exists (select 1 from profiles where id = w and role = 'worker') then raise exception 'That is not a Personal Manager.'; end if;
+  if p_start !~ '^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$' or p_end !~ '^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$' then
+    raise exception 'Enter dates and times like 2026-11-09 14:00.';
+  end if;
+  select region_tz((region_codes)[1]) into tz from profiles where id = w;
+  tz := coalesce(tz, setting_text('default_timezone', 'UTC'));
+  s := p_start::timestamp at time zone tz; e := p_end::timestamp at time zone tz;
+  if e <= s then raise exception 'The end must be after the start.'; end if;
+  return add_pm_block(w, s, e, p_kind, p_note);
+end $$;
+
+-- Whether customers and PMs are asked to share a gender for matching. False until an administrator turns the policy on.
+create or replace function public.gender_matching_active()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select enabled from matching_policy where id), false) and auth.uid() is not null;
+$$;
+
+revoke execute on function public.add_pm_block_local(uuid, text, text, text, text), public.gender_matching_active() from public, anon;
+grant execute on function public.add_pm_block_local(uuid, text, text, text, text), public.gender_matching_active() to authenticated;
