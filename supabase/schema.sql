@@ -12,6 +12,9 @@
 --   0009_account_deletion.sql
 --   0010_catalogue_correction.sql
 --   0011_family_images.sql
+--   0012_regions_hours_schedules.sql
+--   0013_pricing_engine.sql
+--   0014_vehicles_matching_offers.sql
 
 -- ============================================================================
 -- migration: 0001_foundation.sql
@@ -4344,3 +4347,1651 @@ $$;
 revoke execute on function public.catalogue() from public, anon;
 grant execute on function public.catalogue() to authenticated;
 select public.refresh_profile_grants();
+
+-- ============================================================================
+-- migration: 0012_regions_hours_schedules.sql
+-- ============================================================================
+-- 0012 — operating regions and currencies, platform operating hours, PM working schedules,
+-- and slot validation. Safe to run more than once. Depends on 0001-0011.
+--
+-- Nothing here invents business data: there are no seeded regions, rates or schedules.
+-- A task with no region behaves exactly as before. The only default is the platform
+-- window of 06:00-20:00 local time, which an administrator can change in settings or
+-- override per region and per weekday.
+--
+-- Local time: every instant is stored as timestamptz. "Local" always means the time
+-- zone of the task's region (regions.timezone), converted with AT TIME ZONE, so daylight
+-- saving changes are handled by the database's tz data, never by app code.
+
+-- 1. Settings used by this migration -----------------------------------------------------------------
+insert into platform_settings (key, value, description) values
+  ('operating_start',        '"06:00"', 'Default platform opening time (local service time). A region can override it per weekday.'),
+  ('operating_end',          '"20:00"', 'Default platform closing time (local service time). A region can override it per weekday.'),
+  ('default_timezone',       '"UTC"',   'Time zone used for a task that has no region. Set it to your main service zone, for example Asia/Kolkata.'),
+  ('default_task_minutes',   '60',      'Length assumed for scheduling when a task has no stated duration'),
+  ('schedule_buffer_minutes','0',       'Minutes kept free before and after a Personal Manager''s other tasks (a PM can have their own value)')
+on conflict (key) do nothing;
+
+-- True when the statement runs as an app user (the roles PostgREST sets), false for the owner,
+-- migrations and the service role. Used by trigger functions that run as definer, where
+-- current_user would always be the owner.
+create or replace function public.is_app_caller()
+returns boolean language sql stable as $$ select coalesce(current_setting('role', true), '') in ('authenticated', 'anon') $$;
+
+create or replace function public.setting_text(p_key text, p_default text)
+returns text language sql stable security definer set search_path = public as $$
+  select coalesce((select value #>> '{}' from platform_settings where key = p_key), p_default);
+$$;
+
+-- 2. Regions: one currency and one time zone each ------------------------------------------------------
+create table if not exists regions (
+  code text primary key check (code ~ '^[A-Z0-9][A-Z0-9-]{1,11}$'),
+  name text not null check (char_length(name) between 2 and 80),
+  country char(2) check (country is null or country ~ '^[A-Z]{2}$'),
+  currency char(3) not null check (currency ~ '^[A-Z]{3}$'),       -- ISO 4217
+  timezone text not null,                                          -- IANA name, checked on save
+  status text not null default 'draft' check (status in ('draft', 'active', 'paused')),
+  -- Whether our payment provider takes this currency is a fact about our account, so it
+  -- starts false and is switched on by an administrator only after checking.
+  payments_enabled boolean not null default false,
+  -- May a customer send a request outside operating hours, for a service inside them?
+  allow_outside_hours_requests boolean not null default true,
+  updated_by uuid references profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists region_hours (        -- a weekday that differs from the default window
+  region_code text not null references regions (code) on delete cascade,
+  weekday smallint not null check (weekday between 0 and 6),        -- 0 = Sunday
+  closed boolean not null default false,
+  open_time time,
+  close_time time,
+  primary key (region_code, weekday),
+  check (closed or (open_time is not null and close_time is not null and open_time < close_time))
+);
+
+create table if not exists region_exceptions (   -- a closure or special hours on one date
+  id uuid primary key default gen_random_uuid(),
+  region_code text references regions (code) on delete cascade,     -- null = every region
+  on_date date not null,
+  closed boolean not null default true,
+  open_time time,
+  close_time time,
+  reason text check (reason is null or char_length(reason) <= 200),
+  created_at timestamptz not null default now(),
+  check (closed or (open_time is not null and close_time is not null and open_time < close_time))
+);
+create unique index if not exists region_exceptions_one_per_day on region_exceptions (coalesce(region_code, ''), on_date);
+
+-- 3. Personal Manager schedules ----------------------------------------------------------------------------
+-- Working hours are windows per weekday, in the PM's region time zone. A break is simply a
+-- gap between two windows (09:00-13:00 and 14:00-18:00). A PM with no windows has not told
+-- us when they work, so they are never offered a timed task.
+create table if not exists pm_working_hours (
+  worker_id uuid not null references profiles (id) on delete cascade,
+  weekday smallint not null check (weekday between 0 and 6),
+  start_time time not null,
+  end_time time not null,
+  primary key (worker_id, weekday, start_time),
+  check (start_time < end_time)
+);
+create table if not exists pm_blocks (           -- time off or other one-off blocked time
+  id uuid primary key default gen_random_uuid(),
+  worker_id uuid not null references profiles (id) on delete cascade,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  kind text not null default 'time_off' check (kind in ('time_off', 'blocked', 'break')),
+  note text check (note is null or char_length(note) <= 200),
+  created_at timestamptz not null default now(),
+  check (starts_at < ends_at)
+);
+create index if not exists pm_blocks_worker_idx on pm_blocks (worker_id, starts_at);
+alter table profiles add column if not exists schedule_buffer_minutes int check (schedule_buffer_minutes is null or schedule_buffer_minutes between 0 and 240);
+alter table profiles add column if not exists region_codes text[] not null default '{}';     -- regions this PM serves; empty = not stated
+select public.refresh_profile_grants();
+
+-- 4. What a task asks of the calendar ---------------------------------------------------------------------------
+alter table tasks add column if not exists region_code text references regions (code);
+alter table tasks add column if not exists est_minutes int check (est_minutes is null or est_minutes between 1 and 14400);   -- the customer's expected duration
+alter table tasks add column if not exists hours_exception_by uuid references profiles (id) on delete set null;
+alter table tasks add column if not exists hours_exception_at timestamptz;
+alter table tasks add column if not exists hours_exception_note text;
+
+create or replace function public.region_tz(p_region text)
+returns text language sql stable security definer set search_path = public as $$
+  select coalesce((select timezone from regions where code = p_region), setting_text('default_timezone', 'UTC'));
+$$;
+
+-- The opening window for one local date; no row means closed.
+create or replace function public.hours_for(p_region text, p_date date)
+returns table (open_time time, close_time time) language plpgsql stable security definer set search_path = public as $$
+declare ex region_exceptions; rh region_hours;
+begin
+  select * into ex from region_exceptions e
+   where e.on_date = p_date and (e.region_code = p_region or e.region_code is null)
+   order by e.region_code nulls last limit 1;
+  if found then
+    if ex.closed then return; end if;
+    return query select ex.open_time, ex.close_time; return;
+  end if;
+  select * into rh from region_hours h where h.region_code = p_region and h.weekday = extract(dow from p_date)::int;
+  if found then
+    if rh.closed then return; end if;
+    return query select rh.open_time, rh.close_time; return;
+  end if;
+  return query select setting_text('operating_start', '06:00')::time, setting_text('operating_end', '20:00')::time;
+end $$;
+
+-- Null when [p_start, p_end] sits inside the platform's hours for its local day.
+create or replace function public.within_platform_hours(p_region text, p_start timestamptz, p_end timestamptz)
+returns text language plpgsql stable security definer set search_path = public as $$
+declare tz text := region_tz(p_region); ls timestamp := p_start at time zone region_tz(p_region); le timestamp := p_end at time zone region_tz(p_region); h record;
+begin
+  if ls::date <> le::date then return 'A visit has to start and finish on the same day, inside our operating hours.'; end if;
+  select * into h from hours_for(p_region, ls::date);
+  if not found then return 'We are closed on that day. Please choose another day.'; end if;
+  if ls::time < h.open_time or le::time > h.close_time then
+    return format('We take tasks between %s and %s on that day. Please choose a time that finishes by %s.', to_char(h.open_time, 'HH24:MI'), to_char(h.close_time, 'HH24:MI'), to_char(h.close_time, 'HH24:MI'));
+  end if;
+  return null;
+end $$;
+
+-- The time ranges a task occupies. A multi-day plan counts only when its visits are
+-- structured ({"date":"2026-11-02","start":"10:00","minutes":90}); free-text visits give
+-- no dates the database can check, so such a task has no windows and is never auto-offered.
+create or replace function public.task_windows(t tasks)
+returns table (w_start timestamptz, w_end timestamptz) language plpgsql stable security definer set search_path = public as $$
+declare tz text := region_tz(t.region_code); v jsonb; mins int; n int := 0;
+begin
+  mins := coalesce(t.est_minutes, t.est_duration_minutes, setting_num('default_task_minutes', 60)::int);
+  if t.schedule_kind = 'multi_day' then
+    for v in select * from jsonb_array_elements(coalesce(t.schedule_plan, '[]')) loop
+      if (v ->> 'date') ~ '^\d{4}-\d{2}-\d{2}$' and (v ->> 'start') ~ '^([01]\d|2[0-3]):[0-5]\d$' then
+        w_start := ((v ->> 'date') || ' ' || (v ->> 'start'))::timestamp at time zone tz;
+        w_end := w_start + make_interval(mins => coalesce(nullif(v ->> 'minutes', '')::int, mins));
+        n := n + 1; return next;
+      end if;
+    end loop;
+    return;
+  end if;
+  if t.scheduled_at is not null then
+    w_start := t.scheduled_at; w_end := t.scheduled_at + make_interval(mins => mins); return next;
+  end if;
+end $$;
+
+-- True when a task's visit times are all structured, so the database can check them.
+create or replace function public.task_schedule_checkable(t tasks)
+returns boolean language plpgsql stable security definer set search_path = public as $$
+declare total int; ok int;
+begin
+  if t.schedule_kind = 'multi_day' then
+    total := jsonb_array_length(coalesce(t.schedule_plan, '[]'));
+    select count(*) into ok from task_windows(t);
+    return total > 0 and ok = total;
+  end if;
+  return t.scheduled_at is not null;
+end $$;
+
+-- Null when this PM can take [p_start, p_end]; otherwise the reason.
+create or replace function public.pm_free_problem(p_worker uuid, p_region text, p_start timestamptz, p_end timestamptz, p_exclude_task uuid default null)
+returns text language plpgsql stable security definer set search_path = public as $$
+declare tz text := region_tz(p_region); ls timestamp := p_start at time zone region_tz(p_region); le timestamp := p_end at time zone region_tz(p_region);
+        buf int; has_any boolean; fits boolean;
+begin
+  select coalesce(schedule_buffer_minutes, setting_num('schedule_buffer_minutes', 0)::int) into buf from profiles where id = p_worker;
+  select exists (select 1 from pm_working_hours where worker_id = p_worker) into has_any;
+  if not has_any then return 'No working hours have been set.'; end if;
+  if ls::date <> le::date then return 'The visit runs past midnight.'; end if;
+  select exists (select 1 from pm_working_hours h where h.worker_id = p_worker and h.weekday = extract(dow from ls::date)::int
+                    and h.start_time <= ls::time and h.end_time >= le::time) into fits;
+  if not fits then return 'Outside this Personal Manager''s working hours.'; end if;
+  if exists (select 1 from pm_blocks b where b.worker_id = p_worker and b.starts_at < p_end and b.ends_at > p_start) then
+    return 'The Personal Manager has time off or a break then.';
+  end if;
+  if exists (
+    select 1 from tasks a, lateral task_windows(a) w
+     where a.assigned_worker_id = p_worker and a.status in ('matched', 'assigned', 'in_progress')
+       and a.id is distinct from p_exclude_task
+       and w.w_start < p_end + make_interval(mins => buf) and w.w_end + make_interval(mins => buf) > p_start) then
+    return 'The Personal Manager already has a task then.';
+  end if;
+  return null;
+end $$;
+
+-- 5. Customer-facing slot checks (the backend decides; the app only displays) -----------------------------------------
+create or replace function public.slot_problem(p_region text, p_start timestamptz, p_minutes int default null)
+returns text language plpgsql stable security definer set search_path = public as $$
+declare mins int := coalesce(p_minutes, setting_num('default_task_minutes', 60)::int); r regions;
+begin
+  if p_region is not null then
+    select * into r from regions where code = p_region;
+    if r.code is null or r.status <> 'active' then return 'Please choose a supported service region.'; end if;
+  end if;
+  if p_start < now() - interval '5 minutes' then return 'That time has already passed.'; end if;
+  return within_platform_hours(p_region, p_start, p_start + make_interval(mins => mins));
+end $$;
+
+create or replace function public.available_slots(p_region text, p_date date, p_minutes int default null, p_step int default 30)
+returns table (slot_start timestamptz, local_time text) language plpgsql stable security definer set search_path = public as $$
+declare tz text := region_tz(p_region); h record; mins int := coalesce(p_minutes, setting_num('default_task_minutes', 60)::int); cur timestamp; lastpossible timestamp;
+begin
+  if p_step not between 5 and 240 then raise exception 'Choose a step between 5 and 240 minutes.'; end if;
+  if p_region is not null and not exists (select 1 from regions where code = p_region and status = 'active') then return; end if;
+  select * into h from hours_for(p_region, p_date);
+  if not found then return; end if;
+  cur := p_date + h.open_time; lastpossible := p_date + h.close_time - make_interval(mins => mins);
+  while cur <= lastpossible loop
+    slot_start := cur at time zone tz;
+    if slot_start >= now() then local_time := to_char(cur, 'HH24:MI'); return next; end if;
+    cur := cur + make_interval(mins => p_step);
+  end loop;
+end $$;
+
+-- A customer may submit a request outside operating hours only if the region allows it.
+create or replace function public.guard_task_region()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare r regions; prob text; w record; ln timestamp; h record; ex boolean;
+begin
+  if is_app_caller() then
+    new.hours_exception_by := null; new.hours_exception_at := null; new.hours_exception_note := null;
+    if new.region_code is not null then
+      select * into r from regions where code = new.region_code;
+      if r.code is null or r.status <> 'active' then raise exception 'Please choose a supported service region.'; end if;
+      if not r.allow_outside_hours_requests then
+        ln := now() at time zone r.timezone;
+        select * into h from hours_for(r.code, ln::date);
+        if not found or ln::time < h.open_time or ln::time > h.close_time then
+          raise exception 'Requests for this region are taken during operating hours only. Please try again then.';
+        end if;
+      end if;
+      for w in select * from task_windows(new) loop
+        prob := within_platform_hours(new.region_code, w.w_start, w.w_end);
+        if prob is not null then raise exception '%', prob; end if;
+      end loop;
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists task_region_rules on tasks;
+create trigger task_region_rules before insert on tasks for each row execute procedure public.guard_task_region();
+
+-- 6. Administrators ---------------------------------------------------------------------------------------------
+create or replace function public.save_region(p jsonb)
+returns text language plpgsql security definer set search_path = public as $$
+declare c text := upper(trim(p ->> 'code')); old regions; cur char(3) := upper(trim(p ->> 'currency')); tz text := trim(p ->> 'timezone');
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change regions.'; end if;
+  if c is null or c !~ '^[A-Z0-9][A-Z0-9-]{1,11}$' then raise exception 'Give the region a short code, for example IN-MH.'; end if;
+  if cur is null or cur !~ '^[A-Z]{3}$' then raise exception 'Use a three-letter ISO 4217 currency code.'; end if;
+  if not exists (select 1 from pg_timezone_names where name = tz) then raise exception 'That time zone is not recognised. Use an IANA name such as Asia/Kolkata.'; end if;
+  if coalesce(p ->> 'status', 'draft') not in ('draft', 'active', 'paused') then raise exception 'Unknown status.'; end if;
+  select * into old from regions where code = c;
+  if old.code is not null and old.currency <> cur and region_has_rules(c) then
+    raise exception 'This region has pricing rules in %. Create a new region for a different currency instead of changing it.', old.currency;
+  end if;
+  insert into regions (code, name, country, currency, timezone, status, payments_enabled, allow_outside_hours_requests, updated_by)
+  values (c, trim(p ->> 'name'), nullif(upper(trim(p ->> 'country')), ''), cur, tz, coalesce(p ->> 'status', 'draft'),
+          coalesce((p ->> 'payments_enabled')::boolean, false), coalesce((p ->> 'allow_outside_hours_requests')::boolean, true), auth.uid())
+  on conflict (code) do update set name = excluded.name, country = excluded.country, currency = excluded.currency, timezone = excluded.timezone,
+    status = excluded.status, payments_enabled = excluded.payments_enabled, allow_outside_hours_requests = excluded.allow_outside_hours_requests,
+    updated_by = auth.uid(), updated_at = now();
+  perform log_action(case when old.code is null then 'region.created' else 'region.updated' end, 'region', null,
+    jsonb_build_object('code', c), to_jsonb(old), p);
+  return c;
+end $$;
+-- placeholder replaced in 0013 once pricing rules exist; until then no region has any
+create or replace function public.region_has_rules(p_region text)
+returns boolean language sql stable as $$ select false $$;
+
+create or replace function public.save_region_hours(p_region text, p_rows jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare r jsonb;
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change operating hours.'; end if;
+  if not exists (select 1 from regions where code = p_region) then raise exception 'Unknown region.'; end if;
+  if jsonb_typeof(p_rows) <> 'array' then raise exception 'Hours must be a list.'; end if;
+  delete from region_hours where region_code = p_region;
+  for r in select * from jsonb_array_elements(p_rows) loop
+    insert into region_hours (region_code, weekday, closed, open_time, close_time)
+    values (p_region, (r ->> 'weekday')::smallint, coalesce((r ->> 'closed')::boolean, false), nullif(r ->> 'open', '')::time, nullif(r ->> 'close', '')::time);
+  end loop;
+  perform log_action('region.hours_changed', 'region', null, jsonb_build_object('code', p_region, 'rows', p_rows));
+end $$;
+
+create or replace function public.save_hours_exception(p jsonb)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare rid uuid; reg text := nullif(upper(trim(p ->> 'region_code')), '');
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change closures.'; end if;
+  if reg is not null and not exists (select 1 from regions where code = reg) then raise exception 'Unknown region.'; end if;
+  insert into region_exceptions (region_code, on_date, closed, open_time, close_time, reason)
+  values (reg, (p ->> 'on_date')::date, coalesce((p ->> 'closed')::boolean, true), nullif(p ->> 'open', '')::time, nullif(p ->> 'close', '')::time, left(p ->> 'reason', 200))
+  on conflict (coalesce(region_code, ''), on_date) do update set closed = excluded.closed, open_time = excluded.open_time, close_time = excluded.close_time, reason = excluded.reason
+  returning id into rid;
+  perform log_action('region.exception_saved', 'region_exception', rid, p);
+  return rid;
+end $$;
+
+create or replace function public.delete_hours_exception(p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change closures.'; end if;
+  delete from region_exceptions where id = p_id;
+  perform log_action('region.exception_deleted', 'region_exception', p_id);
+end $$;
+
+-- An approved exception lets one task be assigned outside the platform's hours.
+create or replace function public.approve_hours_exception(p_task uuid, p_note text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  if char_length(trim(coalesce(p_note, ''))) < 10 then raise exception 'Record why this exception is approved (at least 10 characters).'; end if;
+  update tasks set hours_exception_by = auth.uid(), hours_exception_at = now(), hours_exception_note = trim(p_note) where id = p_task and status in ('requested', 'matched');
+  if not found then raise exception 'That task cannot take an exception now.'; end if;
+  perform log_action('task.hours_exception', 'task', p_task, jsonb_build_object('note', trim(p_note)));
+end $$;
+
+-- 7. A Personal Manager's own schedule ----------------------------------------------------------------------------------------
+create or replace function public.set_working_hours(p_worker uuid, p_rows jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare w uuid := coalesce(p_worker, auth.uid()); r jsonb;
+begin
+  if w is distinct from auth.uid() and not is_admin() then raise exception 'You can only change your own working hours.'; end if;
+  if not exists (select 1 from profiles where id = w and role = 'worker') then raise exception 'That is not a Personal Manager.'; end if;
+  if jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) > 28 then raise exception 'Send a list of at most 28 working windows.'; end if;
+  delete from pm_working_hours where worker_id = w;
+  for r in select * from jsonb_array_elements(p_rows) loop
+    insert into pm_working_hours (worker_id, weekday, start_time, end_time)
+    values (w, (r ->> 'weekday')::smallint, (r ->> 'start')::time, (r ->> 'end')::time);
+  end loop;
+  if exists (select 1 from pm_working_hours a join pm_working_hours b on a.worker_id = b.worker_id and a.weekday = b.weekday and a.start_time < b.start_time and a.end_time > b.start_time where a.worker_id = w) then
+    raise exception 'Two working windows on the same day overlap.';
+  end if;
+  perform log_action('pm.hours_changed', 'profile', w, jsonb_build_object('windows', jsonb_array_length(p_rows)));
+end $$;
+
+create or replace function public.add_pm_block(p_worker uuid, p_start timestamptz, p_end timestamptz, p_kind text default 'time_off', p_note text default null)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare w uuid := coalesce(p_worker, auth.uid()); bid uuid;
+begin
+  if w is distinct from auth.uid() and not is_admin() then raise exception 'You can only change your own schedule.'; end if;
+  if not exists (select 1 from profiles where id = w and role = 'worker') then raise exception 'That is not a Personal Manager.'; end if;
+  if p_end <= p_start then raise exception 'The end must be after the start.'; end if;
+  insert into pm_blocks (worker_id, starts_at, ends_at, kind, note) values (w, p_start, p_end, coalesce(p_kind, 'time_off'), left(p_note, 200)) returning id into bid;
+  return bid;
+end $$;
+
+create or replace function public.remove_pm_block(p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  delete from pm_blocks where id = p_id and (worker_id = auth.uid() or is_admin());
+end $$;
+
+create or replace function public.my_schedule(p_worker uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare w uuid := coalesce(p_worker, auth.uid());
+begin
+  if w is distinct from auth.uid() and not is_admin() then raise exception 'Not allowed.'; end if;
+  return jsonb_build_object(
+    'hours', coalesce((select jsonb_agg(jsonb_build_object('weekday', weekday, 'start', to_char(start_time, 'HH24:MI'), 'end', to_char(end_time, 'HH24:MI')) order by weekday, start_time) from pm_working_hours where worker_id = w), '[]'),
+    'blocks', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'starts_at', starts_at, 'ends_at', ends_at, 'kind', kind, 'note', note) order by starts_at) from pm_blocks where worker_id = w and ends_at > now()), '[]'),
+    'buffer_minutes', (select schedule_buffer_minutes from profiles where id = w));
+end $$;
+
+-- 8. Access --------------------------------------------------------------------------------------------------------------------------
+alter table regions enable row level security;
+alter table region_hours enable row level security;
+alter table region_exceptions enable row level security;
+alter table pm_working_hours enable row level security;
+alter table pm_blocks enable row level security;
+drop policy if exists "regions: read" on regions;
+create policy "regions: read" on regions for select using (status = 'active' or is_admin());
+drop policy if exists "region hours: read" on region_hours;
+create policy "region hours: read" on region_hours for select using (true);
+drop policy if exists "region exceptions: read" on region_exceptions;
+create policy "region exceptions: read" on region_exceptions for select using (true);
+drop policy if exists "pm hours: owner or admin" on pm_working_hours;
+create policy "pm hours: owner or admin" on pm_working_hours for select using (worker_id = auth.uid() or is_admin());
+drop policy if exists "pm blocks: owner or admin" on pm_blocks;
+create policy "pm blocks: owner or admin" on pm_blocks for select using (worker_id = auth.uid() or is_admin());
+revoke insert, update, delete, truncate on regions, region_hours, region_exceptions, pm_working_hours, pm_blocks from anon, authenticated;
+grant select on regions, region_hours, region_exceptions, pm_working_hours, pm_blocks to authenticated;
+
+revoke execute on function public.setting_text(text, text), public.region_tz(text), public.hours_for(text, date), public.within_platform_hours(text, timestamptz, timestamptz),
+  public.task_windows(tasks), public.task_schedule_checkable(tasks), public.pm_free_problem(uuid, text, timestamptz, timestamptz, uuid),
+  public.slot_problem(text, timestamptz, int), public.available_slots(text, date, int, int),
+  public.save_region(jsonb), public.save_region_hours(text, jsonb), public.save_hours_exception(jsonb), public.delete_hours_exception(uuid),
+  public.approve_hours_exception(uuid, text), public.set_working_hours(uuid, jsonb), public.add_pm_block(uuid, timestamptz, timestamptz, text, text),
+  public.remove_pm_block(uuid), public.my_schedule(uuid) from public, anon;
+-- Internal helpers are not callable by apps; the functions below are the surface.
+revoke execute on function public.setting_text(text, text), public.task_windows(tasks), public.task_schedule_checkable(tasks),
+  public.pm_free_problem(uuid, text, timestamptz, timestamptz, uuid) from authenticated;
+grant execute on function public.region_tz(text), public.hours_for(text, date), public.within_platform_hours(text, timestamptz, timestamptz),
+  public.slot_problem(text, timestamptz, int), public.available_slots(text, date, int, int),
+  public.save_region(jsonb), public.save_region_hours(text, jsonb), public.save_hours_exception(jsonb), public.delete_hours_exception(uuid),
+  public.approve_hours_exception(uuid, text), public.set_working_hours(uuid, jsonb), public.add_pm_block(uuid, timestamptz, timestamptz, text, text),
+  public.remove_pm_block(uuid), public.my_schedule(uuid) to authenticated;
+
+-- ============================================================================
+-- migration: 0013_pricing_engine.sql
+-- ============================================================================
+-- 0013 — the pricing engine: per-service, per-region rules with flat, per-minute and
+-- progressive (marginal tier) duration pricing, quantity discounts, and travel charges.
+-- Safe to run more than once. Depends on 0001-0012.
+--
+-- No rule is seeded and none is active until a super admin creates and activates it.
+-- A service with no active rule keeps its existing pricing (fixed price or quote), so
+-- nothing already booked or published changes. Every number comes from a rule row; the
+-- examples in the documentation are illustrations, not values.
+--
+-- Two separate mechanisms, never merged by accident:
+--   * duration pricing  — what one unit of the service costs for the minutes it takes.
+--                         In progressive mode each rate applies only to the minutes inside
+--                         its own tier (like taxi fare bands); earlier minutes are not repriced.
+--   * quantity discount — a reduction in the per-unit price when several units are booked.
+--                         It never looks at minutes. With per-minute or progressive pricing it
+--                         can only be enabled if the rule says so explicitly
+--                         (duration_qty_interaction = 'unit_total'); it then reduces each
+--                         unit's computed total, and only one discount tier ever applies.
+
+alter table regions add column if not exists minor_units smallint not null default 2 check (minor_units between 0 and 3);
+
+-- 1. Rules -------------------------------------------------------------------------------------------------
+create table if not exists pricing_rules (
+  id uuid primary key default gen_random_uuid(),
+  service_id uuid not null references catalogue_services (id),
+  region_code text not null references regions (code),
+  version int not null,
+  status text not null default 'draft' check (status in ('draft', 'active', 'retired')),
+  model text not null check (model in ('flat', 'ppm', 'progressive')),
+  currency char(3) not null check (currency ~ '^[A-Z]{3}$'),
+  base_charge numeric(12,2) not null default 0 check (base_charge >= 0),
+  included_minutes int not null default 0 check (included_minutes >= 0),   -- minutes the base charge already covers
+  ppm numeric(12,4) check (ppm is null or ppm >= 0),                      -- model = ppm
+  tiers jsonb not null default '[]',                                       -- model = progressive: [{"from":0,"to":60,"ppm":x},{"from":60,"to":null,"ppm":y}]
+  min_minutes int not null default 0 check (min_minutes >= 0),
+  increment_minutes int not null default 1 check (increment_minutes between 1 and 1440),
+  rounding text not null default 'up' check (rounding in ('up', 'nearest', 'down')),
+  max_minutes int check (max_minutes is null or max_minutes > 0),
+  approval_threshold_minutes int check (approval_threshold_minutes is null or approval_threshold_minutes > 0),
+  qty_enabled boolean not null default false,
+  qty_unit text check (qty_unit is null or char_length(qty_unit) between 1 and 40),
+  qty_min int not null default 1 check (qty_min >= 1),
+  qty_max int check (qty_max is null or qty_max >= 1),
+  qty_apply text not null default 'all_units' check (qty_apply in ('all_units', 'marginal')),
+  qty_discount_type text check (qty_discount_type is null or qty_discount_type in ('percent', 'per_unit')),
+  qty_tiers jsonb not null default '[]',                                   -- [{"from_qty":3,"discount":10}]
+  duration_qty_interaction text not null default 'none' check (duration_qty_interaction in ('none', 'unit_total')),
+  travel_method text not null default 'none' check (travel_method in ('none', 'fixed', 'per_km', 'per_minute')),
+  travel_fixed numeric(12,2) check (travel_fixed is null or travel_fixed >= 0),
+  travel_rate numeric(12,4) check (travel_rate is null or travel_rate >= 0),
+  auto_price boolean not null default false,          -- false: always goes to a quote an administrator approves
+  effective_from timestamptz,
+  effective_to timestamptz,
+  note text check (note is null or char_length(note) <= 500),
+  created_by uuid references profiles (id) on delete set null,
+  activated_by uuid references profiles (id) on delete set null,
+  activated_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (service_id, region_code, version)
+);
+create unique index if not exists pricing_rules_one_active on pricing_rules (service_id, region_code) where status = 'active';
+
+-- An active or retired rule never changes (history). Only its status and end date may move.
+create or replace function public.pricing_rule_frozen()
+returns trigger language plpgsql as $$
+begin
+  if tg_op = 'DELETE' then
+    if old.status <> 'draft' then raise exception 'A rule that has been active cannot be deleted. Retire it instead.'; end if;
+    return old;
+  end if;
+  if old.status <> 'draft' then
+    if (to_jsonb(new) - 'status' - 'effective_to' - 'updated_at') is distinct from (to_jsonb(old) - 'status' - 'effective_to' - 'updated_at') then
+      raise exception 'An activated pricing rule cannot be edited. Duplicate it, change the copy, and activate that.';
+    end if;
+    if old.status = 'retired' and new.status <> 'retired' then raise exception 'A retired rule cannot be reactivated. Duplicate it instead.'; end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists pricing_rule_frozen on pricing_rules;
+create trigger pricing_rule_frozen before update or delete on pricing_rules for each row execute procedure public.pricing_rule_frozen();
+
+create or replace function public.region_has_rules(p_region text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from pricing_rules where region_code = p_region);
+$$;
+
+-- 2. Validation: everything an administrator must fix before a rule can go live -----------------------------------
+create or replace function public.pricing_rule_problems(r pricing_rules)
+returns text[] language plpgsql stable security definer set search_path = public as $$
+declare probs text[] := '{}'; reg regions; t jsonb; prev_to numeric; i int := 0; prev_from int := 0; n int; last_to jsonb; d numeric;
+begin
+  select * into reg from regions where code = r.region_code;
+  if reg.code is null then probs := probs || 'Choose a region.'::text; end if;
+  if reg.code is not null and reg.currency <> r.currency then probs := probs || format('The currency must be %s, the region''s currency.', reg.currency); end if;
+  if not exists (select 1 from catalogue_services where id = r.service_id) then probs := probs || 'Choose a service.'::text; end if;
+
+  if r.model = 'ppm' and r.ppm is null then probs := probs || 'Enter the price per minute.'::text; end if;
+  if r.model = 'progressive' then
+    if jsonb_typeof(r.tiers) <> 'array' or jsonb_array_length(r.tiers) = 0 then
+      probs := probs || 'Add at least one duration tier.'::text;
+    else
+      n := jsonb_array_length(r.tiers); prev_to := 0;
+      for t in select * from jsonb_array_elements(r.tiers) loop
+        i := i + 1;
+        if (t ->> 'from') is null or (t ->> 'ppm') is null or (t ->> 'from') !~ '^[0-9]+$' or (t ->> 'ppm') !~ '^[0-9]+(\.[0-9]+)?$' then
+          probs := probs || format('Tier %s needs a start minute and a rate per minute (zero or more).', i); continue;
+        end if;
+        if (t ->> 'from')::numeric <> prev_to then probs := probs || format('Tier %s must start at minute %s, where the previous tier ends.', i, prev_to); end if;
+        if i < n then
+          if (t ->> 'to') is null or (t ->> 'to') !~ '^[0-9]+$' then probs := probs || format('Tier %s needs an end minute (only the last tier may be open-ended).', i);
+          elsif (t ->> 'to')::numeric <= (t ->> 'from')::numeric then probs := probs || format('Tier %s ends before it starts.', i);
+          else prev_to := (t ->> 'to')::numeric; end if;
+        elsif (t ->> 'to') is not null and (t ->> 'to') <> 'null' then probs := probs || 'The last tier must be open-ended so every duration is priced.'::text;
+        end if;
+      end loop;
+    end if;
+  end if;
+  if r.min_minutes > 0 and r.max_minutes is not null and r.min_minutes > r.max_minutes then probs := probs || 'The minimum duration is above the maximum.'::text; end if;
+  if r.max_minutes is not null and r.approval_threshold_minutes is not null and r.approval_threshold_minutes > r.max_minutes then probs := probs || 'The approval threshold is above the maximum duration.'::text; end if;
+
+  if r.qty_enabled then
+    if coalesce(r.qty_unit, '') = '' then probs := probs || 'Say what one unit is (for example "item").'::text; end if;
+    if r.qty_discount_type is null then probs := probs || 'Choose a discount type: percent or per-unit amount.'::text; end if;
+    if r.qty_max is not null and r.qty_max < r.qty_min then probs := probs || 'The maximum quantity is below the minimum.'::text; end if;
+    if jsonb_typeof(r.qty_tiers) <> 'array' or jsonb_array_length(r.qty_tiers) = 0 then probs := probs || 'Add at least one quantity tier.'::text;
+    else
+      prev_from := 1; i := 0;
+      for t in select * from jsonb_array_elements(r.qty_tiers) loop
+        i := i + 1;
+        if (t ->> 'from_qty') is null or (t ->> 'from_qty') !~ '^[0-9]+$' or (t ->> 'discount') is null or (t ->> 'discount') !~ '^[0-9]+(\.[0-9]+)?$' then
+          probs := probs || format('Quantity tier %s needs a starting quantity and a discount.', i); continue;
+        end if;
+        if (t ->> 'from_qty')::int <= prev_from then probs := probs || format('Quantity tier %s must start above %s units (tiers must increase, with no duplicates).', i, prev_from); end if;
+        prev_from := greatest(prev_from, (t ->> 'from_qty')::int);
+        d := (t ->> 'discount')::numeric;
+        if d <= 0 then probs := probs || format('Quantity tier %s needs a discount above zero.', i); end if;
+        if r.qty_discount_type = 'percent' and d > 100 then probs := probs || format('Quantity tier %s is more than 100 percent.', i); end if;
+        if r.qty_discount_type = 'per_unit' and r.model = 'flat' and d > r.base_charge then probs := probs || format('Quantity tier %s takes off more than the unit price.', i); end if;
+      end loop;
+    end if;
+    if r.model in ('ppm', 'progressive') and r.duration_qty_interaction <> 'unit_total' then
+      probs := probs || 'Duration pricing and quantity discounts only combine when you say so: set how they interact before activating.'::text;
+    end if;
+  end if;
+
+  if r.travel_method = 'fixed' and r.travel_fixed is null then probs := probs || 'Enter the fixed travel charge, or choose no travel charge.'::text; end if;
+  if r.travel_method in ('per_km', 'per_minute') and r.travel_rate is null then probs := probs || 'Enter the travel rate.'::text; end if;
+  if r.effective_to is not null and r.effective_from is not null and r.effective_to <= r.effective_from then probs := probs || 'The end date is before the start date.'::text; end if;
+  return probs;
+end $$;
+
+-- 3. The calculation ---------------------------------------------------------------------------------------
+-- One function, used by the customer's live estimate, by the booking trigger and by final
+-- charging, so the three can never disagree.
+create or replace function public.pricing_calc(r pricing_rules, p_minutes int, p_qty int, p_distance_km numeric, p_travel_minutes int, p_minor smallint default 2)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  m int; mm int; lines jsonb := '[]'; unit_total numeric := 0; amt numeric; t jsonb; mins numeric; q int := coalesce(p_qty, 1);
+  reasons text[] := '{}'; msgs text[] := '{}'; disc_unit numeric; disc_total numeric := 0; gross numeric; travel numeric := 0; total numeric;
+  tier jsonb; u int; per numeric; unit_net numeric; inc int := r.increment_minutes; discl jsonb := '[]'; travel_line jsonb;
+begin
+  -- billable minutes
+  if r.model = 'flat' then m := null; mm := null;
+  else
+    if p_minutes is null or p_minutes < 1 then
+      return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'duration_required', 'message', 'Tell us roughly how long the task will take to see an estimate.');
+    end if;
+    m := greatest(p_minutes, r.min_minutes);
+    m := case r.rounding when 'up' then ceil(m::numeric / inc) * inc when 'down' then floor(m::numeric / inc) * inc else round(m::numeric / inc) * inc end;
+    m := greatest(m, r.min_minutes);
+    if m < 1 then m := inc; end if;
+    mm := m;
+  end if;
+
+  -- duration pricing, per unit
+  if r.base_charge > 0 or r.model = 'flat' then
+    amt := round(r.base_charge, p_minor);
+    lines := lines || jsonb_build_object('kind', 'base', 'label', case when r.model = 'flat' then 'Price' else 'Base charge' end, 'amount', amt);
+    unit_total := unit_total + amt;
+  end if;
+  if r.model = 'ppm' then
+    mins := greatest(mm - r.included_minutes, 0);
+    amt := round(mins * r.ppm, p_minor);
+    if mins > 0 then lines := lines || jsonb_build_object('kind', 'duration', 'label', 'Time', 'minutes', mins, 'rate', r.ppm, 'amount', amt); end if;
+    unit_total := unit_total + amt;
+  elsif r.model = 'progressive' then
+    for t in select * from jsonb_array_elements(r.tiers) loop
+      mins := greatest(0, least(mm, coalesce(nullif(t ->> 'to', 'null')::numeric, mm)) - greatest((t ->> 'from')::numeric, r.included_minutes));
+      if mins > 0 then
+        amt := round(mins * (t ->> 'ppm')::numeric, p_minor);
+        lines := lines || jsonb_build_object('kind', 'tier', 'label', format('Minutes %s to %s', (t ->> 'from'), coalesce(nullif(t ->> 'to', 'null'), 'end')),
+                                             'from', (t ->> 'from')::int, 'to', nullif(t ->> 'to', 'null'), 'minutes', mins, 'rate', (t ->> 'ppm')::numeric, 'amount', amt);
+        unit_total := unit_total + amt;
+      end if;
+    end loop;
+  end if;
+
+  -- quantity
+  if q < 1 then q := 1; end if;
+  if not r.qty_enabled and q > 1 then reasons := reasons || 'quantity_not_supported'::text; msgs := msgs || 'This service is not priced by quantity, so a quote is needed for more than one.'::text; end if;
+  if r.qty_enabled and (q < r.qty_min or (r.qty_max is not null and q > r.qty_max)) then
+    reasons := reasons || 'quantity_out_of_range'::text; msgs := msgs || format('This service is priced for %s to %s %s.', r.qty_min, coalesce(r.qty_max::text, 'any number of'), coalesce(r.qty_unit, 'units')) ;
+  end if;
+  gross := round(unit_total * q, p_minor);
+
+  if r.qty_enabled and q > 1 then
+    if r.qty_apply = 'all_units' then
+      select x into tier from jsonb_array_elements(r.qty_tiers) x where (x ->> 'from_qty')::int <= q order by (x ->> 'from_qty')::int desc limit 1;
+      if tier is not null then
+        per := (tier ->> 'discount')::numeric;
+        disc_unit := case r.qty_discount_type when 'percent' then round(unit_total * per / 100, p_minor) else round(per, p_minor) end;
+        disc_total := round(disc_unit * q, p_minor);
+        discl := jsonb_build_array(jsonb_build_object('kind', 'quantity_discount', 'label', format('Quantity discount (%s %s or more)', tier ->> 'from_qty', coalesce(r.qty_unit, 'units')),
+                   'quantity', q, 'from_qty', (tier ->> 'from_qty')::int, 'rate', disc_unit, 'amount', -disc_total));
+      end if;
+    else
+      for u in 1..q loop
+        select x into tier from jsonb_array_elements(r.qty_tiers) x where (x ->> 'from_qty')::int <= u order by (x ->> 'from_qty')::int desc limit 1;
+        if tier is not null then
+          per := (tier ->> 'discount')::numeric;
+          disc_unit := case r.qty_discount_type when 'percent' then round(unit_total * per / 100, p_minor) else round(per, p_minor) end;
+          disc_total := disc_total + disc_unit;
+        end if;
+      end loop;
+      if disc_total > 0 then discl := jsonb_build_array(jsonb_build_object('kind', 'quantity_discount', 'label', 'Quantity discount', 'quantity', q, 'amount', -disc_total)); end if;
+    end if;
+    if disc_total > gross then reasons := reasons || 'discount_exceeds_price'::text; msgs := msgs || 'The discount is larger than the price, so a quote is needed.'::text; disc_total := 0; discl := '[]'; end if;
+  end if;
+
+  -- travel: a fixed charge is part of the estimate; a distance or time based one can only be
+  -- priced once the distance is known (an administrator supplies it), otherwise a quote is needed.
+  if r.travel_method = 'fixed' then travel := round(r.travel_fixed, p_minor); travel_line := jsonb_build_object('kind', 'travel', 'label', 'Travel', 'amount', travel);
+  elsif r.travel_method = 'per_km' then
+    if p_distance_km is null then reasons := reasons || 'travel_to_be_confirmed'::text; msgs := msgs || 'Travel is charged by distance and will be confirmed in your quote.'::text;
+    else travel := round(p_distance_km * r.travel_rate, p_minor); travel_line := jsonb_build_object('kind', 'travel', 'label', format('Travel, %s km', p_distance_km), 'minutes', null, 'rate', r.travel_rate, 'amount', travel); end if;
+  elsif r.travel_method = 'per_minute' then
+    if p_travel_minutes is null then reasons := reasons || 'travel_to_be_confirmed'::text; msgs := msgs || 'Travel is charged by time and will be confirmed in your quote.'::text;
+    else travel := round(p_travel_minutes * r.travel_rate, p_minor); travel_line := jsonb_build_object('kind', 'travel', 'label', format('Travel, %s min', p_travel_minutes), 'minutes', p_travel_minutes, 'rate', r.travel_rate, 'amount', travel); end if;
+  end if;
+
+  if r.max_minutes is not null and mm is not null and mm > r.max_minutes then reasons := reasons || 'duration_over_limit'::text; msgs := msgs || 'This is longer than we can price automatically, so a quote is needed.'::text; end if;
+  if r.approval_threshold_minutes is not null and mm is not null and mm > r.approval_threshold_minutes then reasons := reasons || 'over_approval_threshold'::text; msgs := msgs || 'A longer task needs an approved quote.'::text; end if;
+  if not r.auto_price then reasons := reasons || 'custom_quote'::text; msgs := msgs || 'This service is priced by quote. The figure below is a guide until it is approved.'::text; end if;
+
+  total := gross - disc_total + travel;
+  return jsonb_build_object(
+    'available', true,
+    'status', case when array_length(reasons, 1) is null then 'estimated' else 'quote_required' end,
+    'currency', r.currency, 'minor_units', p_minor,
+    'rule', jsonb_build_object('id', r.id, 'version', r.version, 'model', r.model),
+    'minutes', jsonb_build_object('requested', p_minutes, 'billable', mm),
+    'quantity', q, 'unit_total', unit_total,
+    'lines', lines || discl || case when travel_line is null then '[]'::jsonb else jsonb_build_array(travel_line) end,
+    'gross', gross, 'discount_total', -disc_total, 'travel_total', travel, 'total', total,
+    'reasons', to_jsonb(reasons), 'messages', to_jsonb(msgs));
+end $$;
+
+-- The rule in force for a service and region at a moment.
+create or replace function public.pricing_rule_at(p_service uuid, p_region text, p_at timestamptz default now())
+returns pricing_rules language sql stable security definer set search_path = public as $$
+  select * from pricing_rules
+   where service_id = p_service and region_code = p_region and status in ('active', 'retired')
+     and effective_from <= p_at and (effective_to is null or effective_to > p_at)
+   order by version desc limit 1;
+$$;
+
+create or replace function public.compute_estimate(p_service uuid, p_region text, p_minutes int, p_qty int default 1,
+                                                   p_distance_km numeric default null, p_travel_minutes int default null, p_at timestamptz default now())
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare reg regions; r pricing_rules; def_minutes int;
+begin
+  if p_region is null then
+    return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'no_region', 'message', 'Choose where the task is, so we can price it for your region.');
+  end if;
+  select * into reg from regions where code = p_region and status = 'active';
+  if reg.code is null then
+    return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'unsupported_region', 'message', 'We do not take bookings in that region yet.');
+  end if;
+  r := pricing_rule_at(p_service, p_region, p_at);
+  if r.id is null then
+    return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'no_rule', 'message', 'This service has no published rate for your region, so we will review your request and send a quote.');
+  end if;
+  if r.currency <> reg.currency then
+    return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'currency_mismatch', 'message', 'We cannot price this in your region right now.');
+  end if;
+  if p_minutes is null and r.model <> 'flat' then
+    select nullif(definition ->> 'duration_minutes', '')::int into def_minutes
+      from catalogue_service_versions v join catalogue_services s on s.id = v.service_id and s.current_version = v.version where s.id = p_service;
+    p_minutes := def_minutes;
+  end if;
+  return pricing_calc(r, p_minutes, p_qty, p_distance_km, p_travel_minutes, reg.minor_units);
+end $$;
+
+-- What a customer app calls. It cannot pass a distance: travel by distance is never decided by a customer.
+create or replace function public.price_estimate(p_service uuid, p_region text, p_minutes int default null, p_qty int default 1)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in to see an estimate.'; end if;
+  if not exists (select 1 from catalogue_services where id = p_service and status = 'published') then
+    return jsonb_build_object('available', false, 'status', 'unavailable', 'reason', 'no_service', 'message', 'That service is not available.');
+  end if;
+  return compute_estimate(p_service, p_region, p_minutes, p_qty, null, null, now());
+end $$;
+
+create or replace function public.admin_price_estimate(p_service uuid, p_region text, p_minutes int, p_qty int, p_distance_km numeric, p_travel_minutes int default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  return compute_estimate(p_service, p_region, p_minutes, p_qty, p_distance_km, p_travel_minutes, now());
+end $$;
+
+-- 4. What a task records ---------------------------------------------------------------------------------------
+alter table tasks add column if not exists quantity int not null default 1 check (quantity between 1 and 1000);
+alter table tasks add column if not exists pricing_rule_id uuid references pricing_rules (id);
+alter table tasks add column if not exists pricing_rule_version int;
+alter table tasks add column if not exists pricing_breakdown jsonb;
+alter table tasks add column if not exists pricing_state text not null default 'none';
+alter table tasks add column if not exists final_amount numeric(12,2) check (final_amount is null or final_amount >= 0);
+alter table tasks add column if not exists final_minutes int;
+alter table tasks add column if not exists final_breakdown jsonb;
+alter table tasks drop constraint if exists tasks_pricing_state_check;
+alter table tasks add constraint tasks_pricing_state_check check (pricing_state in ('none', 'estimated', 'quote_pending', 'approved', 'final'));
+alter table tasks drop constraint if exists tasks_price_source_check;
+alter table tasks add constraint tasks_price_source_check check (price_source in ('template', 'admin', 'legacy', 'service', 'rule'));
+-- Every existing task keeps its price exactly as it was.
+
+alter table task_quotes add column if not exists currency char(3);
+create or replace function public.quote_currency() returns trigger language plpgsql set search_path = public as $$
+begin if new.currency is null then select currency into new.currency from tasks where id = new.task_id; end if; return new; end $$;
+drop trigger if exists quote_currency on task_quotes;
+create trigger quote_currency before insert on task_quotes for each row execute procedure public.quote_currency();
+update task_quotes q set currency = t.currency from tasks t where t.id = q.task_id and q.currency is null;
+
+-- The booking trigger. It runs after the general guard (alphabetical order), so what it sets wins.
+-- A customer states the region, an expected duration and a quantity; everything priced is ours.
+create or replace function public.task_pricing_engine()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare est jsonb; reg regions; r pricing_rules; has_rules boolean; spec boolean;
+begin
+  if is_app_caller() then
+    new.pricing_rule_id := null; new.pricing_rule_version := null; new.pricing_breakdown := null; new.pricing_state := 'none';
+    new.final_amount := null; new.final_minutes := null; new.final_breakdown := null;
+    new.quantity := greatest(coalesce(new.quantity, 1), 1);
+    if new.service_id is null then
+      new.quantity := 1;
+      return new;
+    end if;
+    select exists (select 1 from pricing_rules where service_id = new.service_id and status in ('active', 'retired')) into has_rules;
+    if not has_rules then return new; end if;                      -- an unruled service keeps its published pricing
+    spec := coalesce((new.service_snapshot ->> 'requires_specialist')::boolean, false);
+    est := compute_estimate(new.service_id, new.region_code, new.est_minutes, new.quantity, null, null, now());
+    new.pricing_breakdown := est;
+    if (est ->> 'available')::boolean then
+      new.pricing_rule_id := (est -> 'rule' ->> 'id')::uuid; new.pricing_rule_version := (est -> 'rule' ->> 'version')::int;
+      new.currency := est ->> 'currency';
+    else
+      select currency into new.currency from regions where code = new.region_code;
+      new.currency := coalesce(new.currency, 'INR');
+    end if;
+    if (est ->> 'available')::boolean and est ->> 'status' = 'estimated' then
+      new.est_cost := (est ->> 'total')::numeric; new.rate_per_day := null;
+      new.price_source := 'rule'; new.price_status := 'confirmed'; new.price_confirmed_at := now();
+      new.routing_mode := 'broadcast'; new.review_state := case when spec then 'needs_review' else 'ready' end;
+      new.pricing_state := 'estimated';
+    else                                                              -- unknown region, no rate, or a quote is required: an administrator prices it
+      new.est_cost := null; new.rate_per_day := null; new.price_source := null;
+      new.price_status := 'awaiting_approval'; new.price_confirmed_at := null;
+      new.routing_mode := 'admin'; new.review_state := 'needs_review';
+      new.pricing_state := 'quote_pending';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists task_pricing_engine on tasks;
+create trigger task_pricing_engine before insert on tasks for each row execute procedure public.task_pricing_engine();
+
+-- When a quoted price is finally confirmed, the state says approved.
+create or replace function public.task_pricing_state_sync()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.pricing_state = 'quote_pending' and new.price_status = 'confirmed' then new.pricing_state := 'approved'; end if;
+  return new;
+end $$;
+drop trigger if exists task_pricing_state_sync on tasks;
+create trigger task_pricing_state_sync before update of price_status on tasks for each row execute procedure public.task_pricing_state_sync();
+
+-- A one-time task is worth its final amount once there is one.
+create or replace function public.task_value(t tasks)
+returns numeric language sql stable security definer set search_path = public as $$
+  select coalesce(case when t.task_type = 'ongoing'
+                       then t.rate_per_day * (select count(*) from task_visits v where v.task_id = t.id and v.done)
+                       else coalesce(t.final_amount, t.est_cost) end, 0);
+$$;
+
+-- The final charge: recomputed with the very rule the booking used (never today's rule), from the
+-- minutes actually worked and the distance an administrator confirms.
+create or replace function public.finalise_task_price(p_task uuid, p_actual_minutes int, p_distance_km numeric default null, p_travel_minutes int default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare t tasks; r pricing_rules; reg regions; res jsonb;
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  select * into t from tasks where id = p_task for update;
+  if t.id is null then raise exception 'Task not found.'; end if;
+  if t.pricing_rule_id is null then raise exception 'This task was not priced by a rule, so there is nothing to recalculate.'; end if;
+  if t.pricing_state = 'final' then return t.final_breakdown; end if;
+  select * into r from pricing_rules where id = t.pricing_rule_id;
+  select * into reg from regions where code = r.region_code;
+  res := pricing_calc(r, p_actual_minutes, t.quantity, p_distance_km, p_travel_minutes, reg.minor_units);
+  if not (res ->> 'available')::boolean then raise exception '%', res ->> 'message'; end if;
+  update tasks set final_amount = (res ->> 'total')::numeric, final_minutes = p_actual_minutes, final_breakdown = res, pricing_state = 'final' where id = p_task;
+  perform log_action('task.price_finalised', 'task', p_task, jsonb_build_object('rule', r.id, 'rule_version', r.version, 'minutes', p_actual_minutes),
+    jsonb_build_object('est_cost', t.est_cost), jsonb_build_object('final_amount', res ->> 'total'));
+  return res;
+end $$;
+
+-- Bookings carry the region, the expected duration and the quantity for each task.
+create or replace function public.create_booking(p_items jsonb, p_shared jsonb, p_request_key uuid default null)
+returns uuid language plpgsql security invoker set search_path = public as $$
+declare bid uuid; it jsonb; i int := 0; other boolean; kind text; n int; sched timestamptz;
+begin
+  if auth.uid() is null then raise exception 'Sign in to book.'; end if;
+  if p_request_key is not null then
+    select id into bid from bookings where customer_id = auth.uid() and client_request_id = p_request_key;
+    if bid is not null then return bid; end if;
+  end if;
+  if jsonb_typeof(p_items) <> 'array' then raise exception 'Add at least one task.'; end if;
+  n := jsonb_array_length(p_items);
+  if n not between 1 and 10 then raise exception 'A booking holds between 1 and 10 tasks.'; end if;
+  other := coalesce(p_shared ->> 'for_whom', 'self') = 'other';
+  if other and coalesce((p_shared ->> 'recipient_consent')::boolean, false) is not true then
+    raise exception 'Please confirm that the person you are booking for knows and agrees.';
+  end if;
+  if other and coalesce(trim(p_shared ->> 'recipient_name'), '') = '' then
+    raise exception 'Add the name of the person you are booking for.';
+  end if;
+  insert into bookings (customer_id, for_whom, recipient_name, recipient_relation, recipient_consent_at, share_updates,
+                        authorized_contact_name, payer, location, client_request_id)
+  values (auth.uid(), case when other then 'other' else 'self' end, nullif(trim(p_shared ->> 'recipient_name'), ''),
+          nullif(trim(p_shared ->> 'recipient_relation'), ''), case when other then now() end,
+          coalesce((p_shared ->> 'share_updates')::boolean, false), nullif(trim(p_shared ->> 'authorized_contact_name'), ''),
+          coalesce(nullif(p_shared ->> 'payer', ''), 'self'), nullif(trim(p_shared ->> 'location'), ''), p_request_key)
+  returning id into bid;
+  for it in select * from jsonb_array_elements(p_items) loop
+    i := i + 1;
+    kind := coalesce(it ->> 'schedule_kind', p_shared ->> 'schedule_kind', 'single_day');
+    sched := nullif(coalesce(it ->> 'scheduled_at', p_shared ->> 'scheduled_at'), '')::timestamptz;
+    insert into tasks (customer_id, booking_id, service_id, title, description, category, task_type, scheduled_for, scheduled_at, location, lat, lng,
+                       for_whom, recipient_name, recipient_relation, recipient_phone, answers, schedule_kind, schedule_plan,
+                       region_code, est_minutes, quantity)
+    values (auth.uid(), bid, nullif(it ->> 'service_id', '')::uuid, it ->> 'title', it ->> 'description',
+            coalesce(it ->> 'category', 'general'), case when it ->> 'task_type' = 'ongoing' then 'ongoing' else 'one-time' end,
+            coalesce(it ->> 'scheduled_for', p_shared ->> 'scheduled_for', 'Flexible'), sched,
+            coalesce(it ->> 'location', p_shared ->> 'location'),
+            nullif(coalesce(it ->> 'lat', p_shared ->> 'lat'), '')::numeric, nullif(coalesce(it ->> 'lng', p_shared ->> 'lng'), '')::numeric,
+            case when other then 'other' else 'self' end, nullif(trim(p_shared ->> 'recipient_name'), ''),
+            nullif(trim(p_shared ->> 'recipient_relation'), ''), nullif(trim(p_shared ->> 'recipient_phone'), ''),
+            coalesce(it -> 'answers', '{}'), kind, coalesce(it -> 'schedule_plan', p_shared -> 'schedule_plan'),
+            nullif(upper(coalesce(it ->> 'region_code', p_shared ->> 'region_code')), ''), nullif(it ->> 'est_minutes', '')::int, coalesce(nullif(it ->> 'quantity', '')::int, 1));
+  end loop;
+  return bid;
+end $$;
+
+-- 5. Administering rules ------------------------------------------------------------------------------------------
+create or replace function public.save_pricing_rule(p jsonb)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare rid uuid := nullif(p ->> 'id', '')::uuid; old pricing_rules; v int; reg regions;
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change pricing.'; end if;
+  select * into reg from regions where code = upper(p ->> 'region_code');
+  if reg.code is null then raise exception 'Choose a region first.'; end if;
+  if rid is not null then
+    select * into old from pricing_rules where id = rid;
+    if old.id is null then raise exception 'Rule not found.'; end if;
+    if old.status <> 'draft' then raise exception 'Only a draft can be edited. Duplicate this rule to change it.'; end if;
+    update pricing_rules set
+      region_code = reg.code, currency = reg.currency, model = coalesce(p ->> 'model', model),
+      base_charge = coalesce((p ->> 'base_charge')::numeric, 0), included_minutes = coalesce((p ->> 'included_minutes')::int, 0),
+      ppm = nullif(p ->> 'ppm', '')::numeric, tiers = coalesce(p -> 'tiers', '[]'),
+      min_minutes = coalesce((p ->> 'min_minutes')::int, 0), increment_minutes = coalesce((p ->> 'increment_minutes')::int, 1), rounding = coalesce(p ->> 'rounding', 'up'),
+      max_minutes = nullif(p ->> 'max_minutes', '')::int, approval_threshold_minutes = nullif(p ->> 'approval_threshold_minutes', '')::int,
+      qty_enabled = coalesce((p ->> 'qty_enabled')::boolean, false), qty_unit = nullif(p ->> 'qty_unit', ''), qty_min = coalesce((p ->> 'qty_min')::int, 1),
+      qty_max = nullif(p ->> 'qty_max', '')::int, qty_apply = coalesce(p ->> 'qty_apply', 'all_units'), qty_discount_type = nullif(p ->> 'qty_discount_type', ''),
+      qty_tiers = coalesce(p -> 'qty_tiers', '[]'), duration_qty_interaction = coalesce(p ->> 'duration_qty_interaction', 'none'),
+      travel_method = coalesce(p ->> 'travel_method', 'none'), travel_fixed = nullif(p ->> 'travel_fixed', '')::numeric, travel_rate = nullif(p ->> 'travel_rate', '')::numeric,
+      auto_price = coalesce((p ->> 'auto_price')::boolean, false), effective_from = nullif(p ->> 'effective_from', '')::timestamptz,
+      effective_to = nullif(p ->> 'effective_to', '')::timestamptz, note = left(p ->> 'note', 500), updated_at = now()
+     where id = rid;
+    perform log_action('pricing_rule.edited', 'pricing_rule', rid, jsonb_build_object('service', old.service_id, 'region', reg.code), to_jsonb(old), p);
+    return rid;
+  end if;
+  select coalesce(max(version), 0) + 1 into v from pricing_rules where service_id = (p ->> 'service_id')::uuid and region_code = reg.code;
+  insert into pricing_rules (service_id, region_code, version, model, currency, base_charge, included_minutes, ppm, tiers, min_minutes, increment_minutes, rounding,
+    max_minutes, approval_threshold_minutes, qty_enabled, qty_unit, qty_min, qty_max, qty_apply, qty_discount_type, qty_tiers, duration_qty_interaction,
+    travel_method, travel_fixed, travel_rate, auto_price, effective_from, effective_to, note, created_by)
+  values ((p ->> 'service_id')::uuid, reg.code, v, coalesce(p ->> 'model', 'flat'), reg.currency, coalesce((p ->> 'base_charge')::numeric, 0), coalesce((p ->> 'included_minutes')::int, 0),
+    nullif(p ->> 'ppm', '')::numeric, coalesce(p -> 'tiers', '[]'), coalesce((p ->> 'min_minutes')::int, 0), coalesce((p ->> 'increment_minutes')::int, 1), coalesce(p ->> 'rounding', 'up'),
+    nullif(p ->> 'max_minutes', '')::int, nullif(p ->> 'approval_threshold_minutes', '')::int, coalesce((p ->> 'qty_enabled')::boolean, false), nullif(p ->> 'qty_unit', ''),
+    coalesce((p ->> 'qty_min')::int, 1), nullif(p ->> 'qty_max', '')::int, coalesce(p ->> 'qty_apply', 'all_units'), nullif(p ->> 'qty_discount_type', ''), coalesce(p -> 'qty_tiers', '[]'),
+    coalesce(p ->> 'duration_qty_interaction', 'none'), coalesce(p ->> 'travel_method', 'none'), nullif(p ->> 'travel_fixed', '')::numeric, nullif(p ->> 'travel_rate', '')::numeric,
+    coalesce((p ->> 'auto_price')::boolean, false), nullif(p ->> 'effective_from', '')::timestamptz, nullif(p ->> 'effective_to', '')::timestamptz, left(p ->> 'note', 500), auth.uid())
+  returning id into rid;
+  perform log_action('pricing_rule.created', 'pricing_rule', rid, jsonb_build_object('service', p ->> 'service_id', 'region', reg.code, 'version', v));
+  return rid;
+end $$;
+
+create or replace function public.pricing_rule_readiness(p_id uuid)
+returns text[] language plpgsql stable security definer set search_path = public as $$
+declare r pricing_rules;
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  select * into r from pricing_rules where id = p_id;
+  if r.id is null then raise exception 'Rule not found.'; end if;
+  return pricing_rule_problems(r);
+end $$;
+
+create or replace function public.activate_pricing_rule(p_id uuid, p_effective_from timestamptz default null)
+returns void language plpgsql security definer set search_path = public as $$
+declare r pricing_rules; probs text[]; prev pricing_rules; at timestamptz := coalesce(p_effective_from, now());
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can activate pricing.'; end if;
+  select * into r from pricing_rules where id = p_id for update;
+  if r.id is null then raise exception 'Rule not found.'; end if;
+  if r.status <> 'draft' then raise exception 'Only a draft can be activated.'; end if;
+  probs := pricing_rule_problems(r);
+  if array_length(probs, 1) > 0 then raise exception 'Fix this before activating: %', array_to_string(probs, ' '); end if;
+  select * into prev from pricing_rules where service_id = r.service_id and region_code = r.region_code and status = 'active' for update;
+  if prev.id is not null then
+    update pricing_rules set status = 'retired', effective_to = greatest(at, prev.effective_from + interval '1 microsecond') where id = prev.id;
+    at := greatest(at, prev.effective_from + interval '1 microsecond');
+  end if;
+  update pricing_rules set status = 'active', effective_from = at, activated_by = auth.uid(), activated_at = now(), updated_at = now() where id = p_id;
+  perform log_action('pricing_rule.activated', 'pricing_rule', p_id, jsonb_build_object('service', r.service_id, 'region', r.region_code, 'version', r.version, 'replaced', prev.id),
+    case when prev.id is null then null else jsonb_build_object('version', prev.version, 'status', 'active') end, jsonb_build_object('version', r.version, 'status', 'active'));
+end $$;
+
+create or replace function public.retire_pricing_rule(p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare r pricing_rules;
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change pricing.'; end if;
+  select * into r from pricing_rules where id = p_id for update;
+  if r.id is null or r.status <> 'active' then raise exception 'Only an active rule can be retired.'; end if;
+  update pricing_rules set status = 'retired', effective_to = now() where id = p_id;
+  perform log_action('pricing_rule.retired', 'pricing_rule', p_id, jsonb_build_object('service', r.service_id, 'region', r.region_code, 'version', r.version));
+end $$;
+
+create or replace function public.duplicate_pricing_rule(p_id uuid)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare r pricing_rules; nid uuid; v int;
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change pricing.'; end if;
+  select * into r from pricing_rules where id = p_id;
+  if r.id is null then raise exception 'Rule not found.'; end if;
+  select max(version) + 1 into v from pricing_rules where service_id = r.service_id and region_code = r.region_code;
+  insert into pricing_rules (service_id, region_code, version, model, currency, base_charge, included_minutes, ppm, tiers, min_minutes, increment_minutes, rounding, max_minutes,
+    approval_threshold_minutes, qty_enabled, qty_unit, qty_min, qty_max, qty_apply, qty_discount_type, qty_tiers, duration_qty_interaction, travel_method, travel_fixed, travel_rate,
+    auto_price, note, created_by)
+  select service_id, region_code, v, model, currency, base_charge, included_minutes, ppm, tiers, min_minutes, increment_minutes, rounding, max_minutes, approval_threshold_minutes,
+    qty_enabled, qty_unit, qty_min, qty_max, qty_apply, qty_discount_type, qty_tiers, duration_qty_interaction, travel_method, travel_fixed, travel_rate, auto_price, note, auth.uid()
+    from pricing_rules where id = p_id returning id into nid;
+  perform log_action('pricing_rule.duplicated', 'pricing_rule', nid, jsonb_build_object('from', p_id));
+  return nid;
+end $$;
+
+-- 6. Access ---------------------------------------------------------------------------------------------------------
+alter table pricing_rules enable row level security;
+drop policy if exists "pricing rules: admins read" on pricing_rules;
+create policy "pricing rules: admins read" on pricing_rules for select using (is_admin());
+revoke insert, update, delete, truncate on pricing_rules from anon, authenticated;
+grant select on pricing_rules to authenticated;
+
+revoke execute on function public.region_has_rules(text), public.pricing_rule_problems(pricing_rules), public.pricing_calc(pricing_rules, int, int, numeric, int, smallint),
+  public.pricing_rule_at(uuid, text, timestamptz), public.compute_estimate(uuid, text, int, int, numeric, int, timestamptz),
+  public.price_estimate(uuid, text, int, int), public.admin_price_estimate(uuid, text, int, int, numeric, int), public.finalise_task_price(uuid, int, numeric, int),
+  public.save_pricing_rule(jsonb), public.pricing_rule_readiness(uuid), public.activate_pricing_rule(uuid, timestamptz), public.retire_pricing_rule(uuid),
+  public.duplicate_pricing_rule(uuid) from public, anon;
+revoke execute on function public.region_has_rules(text), public.pricing_rule_problems(pricing_rules), public.pricing_calc(pricing_rules, int, int, numeric, int, smallint),
+  public.pricing_rule_at(uuid, text, timestamptz), public.compute_estimate(uuid, text, int, int, numeric, int, timestamptz) from authenticated;
+grant execute on function public.price_estimate(uuid, text, int, int), public.admin_price_estimate(uuid, text, int, int, numeric, int), public.finalise_task_price(uuid, int, numeric, int),
+  public.save_pricing_rule(jsonb), public.pricing_rule_readiness(uuid), public.activate_pricing_rule(uuid, timestamptz), public.retire_pricing_rule(uuid),
+  public.duplicate_pricing_rule(uuid) to authenticated;
+
+-- ============================================================================
+-- migration: 0014_vehicles_matching_offers.sql
+-- ============================================================================
+-- 0014 — vehicle eligibility, configurable customer-gender matching, and assignment offers.
+-- Safe to run more than once. Depends on 0001-0013.
+--
+-- Decisions that belong to the business are settings, not code:
+--   * the gender mapping is EMPTY and the policy is OFF. Nothing is assumed. An administrator
+--     enters the mapping and records that the legal review for the region was done before it
+--     can be switched on.
+--   * automatic offers are OFF (settings auto_assign_mode = "off"), so the existing job feed and
+--     claim flow keep working untouched until an administrator turns offers on.
+--
+-- Privacy of gender: stored only with an explicit consent timestamp, never selectable through
+-- the profile table by anyone (column grants), never returned to PMs, customers or the admin
+-- screens. Only the matching functions read it. Audit rows record the rule's OUTCOME, not the value.
+
+-- 1. Settings --------------------------------------------------------------------------------------------------
+insert into platform_settings (key, value, description) values
+  ('auto_assign_mode',      '"off"', 'off = Personal Managers pick tasks from the job feed. offers = the system offers each task to the best eligible Personal Manager, one at a time.'),
+  ('offer_max_attempts',    '5',     'Offers sent for one task before it goes to the Admin Queue'),
+  ('rank_weight_fairness',  '3',     'Ranking weight for workload fairness (fewer active jobs, longer since last task)'),
+  ('rank_weight_distance',  '2',     'Ranking weight for distance, used only when both sides have a map point'),
+  ('rank_weight_rating',    '1',     'Ranking weight for customer rating, used only for a PM who has ratings'),
+  ('max_active_jobs_per_pm','0',     'Most tasks a Personal Manager may hold at once. 0 means no limit.')
+on conflict (key) do nothing;
+-- offer_timeout_minutes already exists (0002) and is the offer expiry.
+
+-- 2. Vehicles --------------------------------------------------------------------------------------------------------
+alter table profiles add column if not exists vehicles text[];                      -- null = not stated; {} = none; else two_wheeler / four_wheeler
+alter table profiles add column if not exists travel_available boolean;
+do $$ begin
+  alter table profiles add constraint profiles_vehicles_check check (vehicles is null or vehicles <@ array['two_wheeler', 'four_wheeler']);
+exception when duplicate_object then null; end $$;
+
+create table if not exists service_eligibility (
+  service_id uuid primary key references catalogue_services (id) on delete cascade,
+  vehicle_ok text[] not null default '{}' check (vehicle_ok <@ array['two_wheeler', 'four_wheeler']),   -- {} = no vehicle needed; both = either will do
+  updated_by uuid references profiles (id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+alter table tasks add column if not exists vehicle_ok text[] not null default '{}';
+
+-- The requirement in force at booking time travels with the task.
+create or replace function public.task_eligibility_snapshot()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.vehicle_ok := coalesce((select vehicle_ok from service_eligibility where service_id = new.service_id), '{}');
+  return new;
+end $$;
+drop trigger if exists task_eligibility_snapshot on tasks;
+create trigger task_eligibility_snapshot before insert on tasks for each row execute procedure public.task_eligibility_snapshot();
+
+create or replace function public.set_service_vehicle(p_service uuid, p_vehicle_ok text[])
+returns void language plpgsql security definer set search_path = public as $$
+declare old text[];
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change service eligibility.'; end if;
+  if not exists (select 1 from catalogue_services where id = p_service) then raise exception 'Service not found.'; end if;
+  if not (coalesce(p_vehicle_ok, '{}') <@ array['two_wheeler', 'four_wheeler']) then raise exception 'Vehicle types are two_wheeler and four_wheeler.'; end if;
+  select vehicle_ok into old from service_eligibility where service_id = p_service;
+  insert into service_eligibility (service_id, vehicle_ok, updated_by) values (p_service, coalesce(p_vehicle_ok, '{}'), auth.uid())
+  on conflict (service_id) do update set vehicle_ok = excluded.vehicle_ok, updated_by = auth.uid(), updated_at = now();
+  perform log_action('service.vehicle_requirement', 'service', p_service, '{}', jsonb_build_object('vehicle_ok', old), jsonb_build_object('vehicle_ok', coalesce(p_vehicle_ok, '{}')));
+end $$;
+
+create or replace function public.set_pm_vehicles(p_worker uuid, p_vehicles text[], p_travel boolean)
+returns void language plpgsql security definer set search_path = public as $$
+declare w uuid := coalesce(p_worker, auth.uid());
+begin
+  if w is distinct from auth.uid() and not is_admin() then raise exception 'You can only change your own details.'; end if;
+  if not exists (select 1 from profiles where id = w and role = 'worker') then raise exception 'That is not a Personal Manager.'; end if;
+  if p_vehicles is not null and not (p_vehicles <@ array['two_wheeler', 'four_wheeler']) then raise exception 'Vehicle types are two_wheeler and four_wheeler.'; end if;
+  update profiles set vehicles = p_vehicles, travel_available = p_travel where id = w;
+  perform log_action('pm.vehicles_changed', 'profile', w, jsonb_build_object('vehicles', p_vehicles, 'travel', p_travel));
+end $$;
+
+create or replace function public.set_pm_regions(p_worker uuid, p_regions text[])
+returns void language plpgsql security definer set search_path = public as $$
+declare w uuid := coalesce(p_worker, auth.uid());
+begin
+  if w is distinct from auth.uid() and not is_admin() then raise exception 'You can only change your own details.'; end if;
+  if not exists (select 1 from profiles where id = w and role = 'worker') then raise exception 'That is not a Personal Manager.'; end if;
+  if exists (select 1 from unnest(coalesce(p_regions, '{}')) r where not exists (select 1 from regions where code = r)) then raise exception 'Unknown region.'; end if;
+  update profiles set region_codes = coalesce(p_regions, '{}') where id = w;
+end $$;
+
+-- 3. Gender (for matching only) ----------------------------------------------------------------------------------
+alter table profiles add column if not exists gender text;
+alter table profiles add column if not exists gender_consent_at timestamptz;
+do $$ begin
+  alter table profiles add constraint profiles_gender_check check (gender is null or gender in ('female', 'male', 'non_binary', 'self_described', 'undisclosed'));
+exception when duplicate_object then null; end $$;
+
+-- Nobody can read gender through the profile table, not even admins. Matching functions read it.
+create or replace function public.refresh_profile_grants()
+returns void language plpgsql as $$
+declare cols text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position) into cols
+    from information_schema.columns
+   where table_schema = 'public' and table_name = 'profiles' and column_name not in ('phone', 'email', 'gender', 'gender_consent_at');
+  execute 'revoke select on public.profiles from anon, authenticated';
+  execute format('grant select (%s) on public.profiles to authenticated', cols);
+end $$;
+revoke execute on function public.refresh_profile_grants() from public, anon, authenticated;
+select public.refresh_profile_grants();
+
+create or replace function public.guard_profile_gender()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon')
+     and (new.gender is distinct from old.gender or new.gender_consent_at is distinct from old.gender_consent_at)
+     and coalesce(current_setting('mrtodo.gender_rpc', true), '') <> 'on' then
+    raise exception 'Use the setting for this in your account, which explains how it is used.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_profile_gender on profiles;
+create trigger guard_profile_gender before update on profiles for each row execute procedure public.guard_profile_gender();
+
+-- p_gender null clears it. Any recorded value needs the person's consent to its use for matching.
+create or replace function public.set_my_gender(p_gender text, p_consent boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in first.'; end if;
+  if p_gender is not null and p_gender not in ('female', 'male', 'non_binary', 'self_described', 'undisclosed') then raise exception 'Choose one of the listed options.'; end if;
+  if p_gender is not null and p_gender <> 'undisclosed' and p_consent is not true then
+    raise exception 'Please confirm that we may use this to match you with a Personal Manager.';
+  end if;
+  perform set_config('mrtodo.gender_rpc', 'on', true);
+  update profiles set gender = p_gender, gender_consent_at = case when p_gender is null then null else now() end where id = auth.uid();
+  perform log_action('profile.gender_set', 'profile', auth.uid(), jsonb_build_object('recorded', p_gender is not null));
+end $$;
+
+create or replace function public.my_gender_status()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('gender', gender, 'consented', gender_consent_at is not null) from profiles where id = auth.uid();
+$$;
+
+-- An administrator may correct a Personal Manager's recorded value (never read it back).
+create or replace function public.admin_set_pm_gender(p_worker uuid, p_gender text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  if not exists (select 1 from profiles where id = p_worker and role = 'worker') then raise exception 'That is not a Personal Manager.'; end if;
+  if p_gender is not null and p_gender not in ('female', 'male', 'non_binary', 'self_described', 'undisclosed') then raise exception 'Choose one of the listed options.'; end if;
+  perform set_config('mrtodo.gender_rpc', 'on', true);
+  update profiles set gender = p_gender, gender_consent_at = case when p_gender is null then null else now() end where id = p_worker;
+  perform log_action('profile.gender_set_by_admin', 'profile', p_worker, jsonb_build_object('recorded', p_gender is not null));
+end $$;
+
+-- The policy: which PM genders may serve which customer genders. Empty and off until an admin decides.
+create table if not exists matching_policy (
+  id boolean primary key default true check (id),
+  enabled boolean not null default false,
+  mapping jsonb not null default '{}',                    -- {"<customer gender>": ["<allowed PM gender>", ...]}
+  fallback text not null default 'admin_queue' check (fallback in ('admin_queue', 'ignore_rule')),
+  review_note text,                                       -- who reviewed the legal position, for which region, when
+  updated_by uuid references profiles (id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+insert into matching_policy (id) values (true) on conflict do nothing;
+
+create or replace function public.save_matching_policy(p_enabled boolean, p_mapping jsonb, p_fallback text, p_review_note text)
+returns void language plpgsql security definer set search_path = public as $$
+declare old matching_policy; k text; v jsonb; g text; allowed text[] := array['female', 'male', 'non_binary', 'self_described'];
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change the matching policy.'; end if;
+  if jsonb_typeof(coalesce(p_mapping, '{}')) <> 'object' then raise exception 'The mapping must list a customer gender and the Personal Manager genders allowed for it.'; end if;
+  for k, v in select * from jsonb_each(coalesce(p_mapping, '{}')) loop
+    if not (k = any (allowed)) then raise exception 'Unknown customer gender "%".', k; end if;
+    if jsonb_typeof(v) <> 'array' or jsonb_array_length(v) = 0 then raise exception 'Give at least one allowed Personal Manager gender for "%".', k; end if;
+    for g in select jsonb_array_elements_text(v) loop
+      if not (g = any (allowed)) then raise exception 'Unknown Personal Manager gender "%".', g; end if;
+    end loop;
+  end loop;
+  if coalesce(p_fallback, 'admin_queue') not in ('admin_queue', 'ignore_rule') then raise exception 'Unknown fallback.'; end if;
+  if p_enabled and (coalesce(p_mapping, '{}') = '{}' or char_length(trim(coalesce(p_review_note, ''))) < 20) then
+    raise exception 'Before switching this on, enter the mapping and record the legal review (who reviewed it, for which region, and when).';
+  end if;
+  select * into old from matching_policy where id;
+  update matching_policy set enabled = p_enabled, mapping = coalesce(p_mapping, '{}'), fallback = coalesce(p_fallback, 'admin_queue'),
+    review_note = nullif(trim(p_review_note), ''), updated_by = auth.uid(), updated_at = now() where id;
+  perform log_action('matching_policy.changed', 'matching_policy', null, '{}', to_jsonb(old) - 'updated_by', jsonb_build_object('enabled', p_enabled, 'mapping', p_mapping, 'fallback', p_fallback, 'review_note', p_review_note));
+end $$;
+
+create or replace function public.matching_policy_status()
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  return (select to_jsonb(m) - 'id' from matching_policy m where id);
+end $$;
+
+-- 'not_applied' (rule off, or ignored by fallback) | 'allowed' | 'blocked' | 'queue' (cannot decide: an administrator must).
+create or replace function public.gender_rule(p_customer uuid, p_for_other boolean, p_worker uuid)
+returns text language plpgsql stable security definer set search_path = public as $$
+declare pol matching_policy; cg text; pg text;
+begin
+  select * into pol from matching_policy where id;
+  if not pol.enabled then return 'not_applied'; end if;
+  if p_for_other then cg := null;                       -- the recipient's gender is not recorded, and we do not guess
+  else select gender into cg from profiles where id = p_customer and gender_consent_at is not null; end if;
+  if cg is null or cg = 'undisclosed' or not (pol.mapping ? cg) then
+    return case pol.fallback when 'ignore_rule' then 'not_applied' else 'queue' end;
+  end if;
+  select gender into pg from profiles where id = p_worker and gender_consent_at is not null;
+  if pg is not null and (pol.mapping -> cg) ? pg then return 'allowed'; end if;
+  return 'blocked';
+end $$;
+
+-- 4. Offers ---------------------------------------------------------------------------------------------------------------
+alter table tasks add column if not exists assignment_state text not null default 'none';
+alter table tasks add column if not exists queue_reason text;
+alter table tasks add column if not exists queue_at timestamptz;
+alter table tasks add column if not exists queue_reset_at timestamptz;
+alter table tasks drop constraint if exists tasks_assignment_state_check;
+alter table tasks add constraint tasks_assignment_state_check check (assignment_state in ('none', 'offering', 'admin_queue', 'assigned', 'manual'));
+create index if not exists tasks_assignment_idx on tasks (assignment_state) where assignment_state in ('offering', 'admin_queue');
+
+create table if not exists assignment_offers (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks (id) on delete cascade,
+  worker_id uuid not null references profiles (id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'rejected', 'expired', 'cancelled')),
+  attempt int not null,
+  rank_score numeric,
+  rank_detail jsonb,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  responded_at timestamptz,
+  response_note text check (response_note is null or char_length(response_note) <= 300),
+  unique (task_id, worker_id)                          -- one offer per Personal Manager per task, ever: a retry cannot re-offer
+);
+create unique index if not exists assignment_offers_one_pending on assignment_offers (task_id) where status = 'pending';
+create index if not exists assignment_offers_worker_idx on assignment_offers (worker_id, status);
+create index if not exists assignment_offers_expiry_idx on assignment_offers (expires_at) where status = 'pending';
+
+-- 5. Eligibility: every rule, evaluated in one place ---------------------------------------------------------------------
+create or replace function public.pm_eligibility(p_task uuid, p_worker uuid)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare t tasks; w profiles; fails text[] := '{}'; radius numeric := setting_num('broadcast_radius_km', 15); win record; prob text; checkable boolean; active_n int; cap int := setting_num('max_active_jobs_per_pm', 0)::int; g text;
+begin
+  select * into t from tasks where id = p_task;
+  select * into w from profiles where id = p_worker;
+  if t.id is null or w.id is null then return jsonb_build_object('eligible', false, 'failures', array['not_found']); end if;
+  if w.role <> 'worker' or w.worker_status <> 'approved' then fails := fails || 'not_active'::text; end if;
+  if coalesce(array_length(pm_missing_skills(p_worker, p_task), 1), 0) > 0 then fails := fails || 'qualifications'::text; end if;
+  if t.price_status <> 'confirmed' then fails := fails || 'price_not_approved'::text; end if;
+  if t.region_code is not null and not (t.region_code = any (w.region_codes)) then fails := fails || 'region'::text; end if;
+  if coalesce(array_length(t.vehicle_ok, 1), 0) > 0 then
+    if w.vehicles is null then fails := fails || 'vehicle_unknown'::text;
+    elsif not (w.vehicles && t.vehicle_ok) then fails := fails || 'vehicle'::text; end if;
+  end if;
+  if w.base_lat is not null and t.lat is not null then
+    if km_between(w.base_lat, w.base_lng, t.lat, t.lng) > radius then fails := fails || 'too_far'::text; end if;
+  elsif coalesce(w.service_area, '') <> '' and t.location not ilike '%' || w.service_area || '%' then fails := fails || 'area'::text; end if;
+  if exists (select 1 from task_declines d where d.task_id = t.id and d.worker_id = w.id) then fails := fails || 'declined'::text; end if;
+  if cap > 0 then
+    select count(*)::int into active_n from tasks a where a.assigned_worker_id = w.id and a.status in ('matched', 'assigned', 'in_progress') and a.id <> t.id;
+    if active_n >= cap then fails := fails || 'at_capacity'::text; end if;
+  end if;
+  checkable := task_schedule_checkable(t);
+  if not checkable then fails := fails || 'schedule_unverifiable'::text;
+  else
+    for win in select * from task_windows(t) loop
+      if t.hours_exception_at is null then
+        prob := within_platform_hours(t.region_code, win.w_start, win.w_end);
+        if prob is not null then fails := fails || 'operating_hours'::text; exit; end if;
+      end if;
+    end loop;
+    for win in select * from task_windows(t) loop
+      prob := pm_free_problem(p_worker, t.region_code, win.w_start, win.w_end, t.id);
+      if prob is not null then fails := fails || 'schedule'::text; exit; end if;
+    end loop;
+  end if;
+  g := gender_rule(t.customer_id, t.for_whom = 'other', p_worker);
+  if g in ('blocked', 'queue') then fails := fails || case g when 'blocked' then 'gender_rule' else 'gender_rule_undecidable' end; end if;
+  return jsonb_build_object('eligible', coalesce(array_length(fails, 1), 0) = 0, 'failures', to_jsonb(fails), 'gender_rule', g);
+end $$;
+
+-- Explainable ranking: each part is stored with the offer.
+create or replace function public.pm_rank(p_task uuid, p_worker uuid)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare t tasks; w profiles; wf numeric := setting_num('rank_weight_fairness', 3); wd numeric := setting_num('rank_weight_distance', 2); wr numeric := setting_num('rank_weight_rating', 1);
+        radius numeric := setting_num('broadcast_radius_km', 15); active_n int; fair numeric; rec numeric; dist numeric := 0; rat numeric := 0; km numeric;
+begin
+  select * into t from tasks where id = p_task; select * into w from profiles where id = p_worker;
+  select count(*)::int into active_n from tasks a where a.assigned_worker_id = w.id and a.status in ('matched', 'assigned', 'in_progress');
+  rec := case when w.last_assigned_at is null then 1 else least(extract(epoch from now() - w.last_assigned_at) / 3600 / 168, 1) end;
+  fair := 0.5 * (1.0 / (1 + active_n)) + 0.5 * rec;
+  if w.base_lat is not null and t.lat is not null then km := km_between(w.base_lat, w.base_lng, t.lat, t.lng); dist := greatest(0, 1 - km / radius); end if;
+  if coalesce(w.rating_count, 0) >= 1 and w.rating is not null then rat := w.rating / 5.0; end if;
+  return jsonb_build_object('score', round(wf * fair + wd * dist + wr * rat, 4),
+    'fairness', round(fair, 4), 'distance', round(dist, 4), 'distance_km', round(km, 1), 'rating', round(rat, 4), 'active_jobs', active_n,
+    'weights', jsonb_build_object('fairness', wf, 'distance', wd, 'rating', wr));
+end $$;
+
+-- 6. The offer workflow -------------------------------------------------------------------------------------------------------
+create or replace function public.queue_task(p_task uuid, p_reason text)
+returns void language plpgsql security definer set search_path = public as $$
+declare t tasks;
+begin
+  select * into t from tasks where id = p_task;
+  update tasks set assignment_state = 'admin_queue', queue_reason = left(p_reason, 500), queue_at = now(), routing_mode = 'admin' where id = p_task;
+  update assignment_offers set status = 'cancelled', responded_at = now() where task_id = p_task and status = 'pending';
+  perform log_action('task.sent_to_admin_queue', 'task', p_task, jsonb_build_object('reason', left(p_reason, 500)));
+  perform notify_admins('task', 'A task needs manual assignment', coalesce(t.title, 'Task') || ' — ' || left(p_reason, 140), p_task);
+  perform notify_user(t.customer_id, 'task', 'We are arranging your Personal Manager', t.title, p_task);
+end $$;
+
+create or replace function public.dispatch_offer(p_task uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare t tasks; cand record; n int; best uuid; best_score numeric; best_rank jsonb; rk jsonb; elig jsonb; oid uuid; counts jsonb := '{}'; f text; summary text; any_pm boolean;
+        max_n int := setting_num('offer_max_attempts', 5)::int; exp int := setting_num('offer_timeout_minutes', 15)::int;
+begin
+  if setting_text('auto_assign_mode', 'off') <> 'offers' then return 'off'; end if;
+  select * into t from tasks where id = p_task for update;
+  if t.id is null or t.status <> 'requested' or t.assigned_worker_id is not null then return 'not_open'; end if;
+  if t.assignment_state = 'admin_queue' then return 'queued'; end if;
+  select id into oid from assignment_offers where task_id = t.id and status = 'pending';
+  if oid is not null then return 'pending'; end if;
+  if t.price_status <> 'confirmed' or t.review_state not in ('ready', 'none') then return 'not_ready'; end if;
+  select count(*) into n from assignment_offers where task_id = t.id and created_at >= coalesce(t.queue_reset_at, t.created_at);
+  if n >= max_n then perform queue_task(t.id, format('%s offers were sent and none was accepted.', n)); return 'queued'; end if;
+
+  for cand in
+    select p.id from profiles p where p.role = 'worker' and p.worker_status = 'approved'
+       and not exists (select 1 from assignment_offers o where o.task_id = t.id and o.worker_id = p.id)
+     order by p.id
+  loop
+    elig := pm_eligibility(t.id, cand.id);
+    if (elig ->> 'eligible')::boolean then
+      rk := pm_rank(t.id, cand.id);
+      if best is null or (rk ->> 'score')::numeric > best_score then best := cand.id; best_score := (rk ->> 'score')::numeric; best_rank := rk; end if;   -- ties keep the lower id
+    else
+      for f in select jsonb_array_elements_text(elig -> 'failures') loop
+        counts := jsonb_set(counts, array[f], to_jsonb(coalesce((counts ->> f)::int, 0) + 1));
+      end loop;
+    end if;
+  end loop;
+
+  if best is null then
+    select exists (select 1 from profiles where role = 'worker' and worker_status = 'approved') into any_pm;
+    if not any_pm then summary := 'There are no approved Personal Managers.';
+    else
+      select string_agg(format('%s PM%s: %s', v::int, case when v::int = 1 then '' else 's' end,
+        case k when 'not_active' then 'not active' when 'qualifications' then 'missing a verified qualification' when 'price_not_approved' then 'price not approved'
+               when 'region' then 'does not serve the region' when 'vehicle' then 'no suitable vehicle' when 'vehicle_unknown' then 'vehicle not stated' when 'too_far' then 'too far'
+               when 'area' then 'outside their service area' when 'declined' then 'declined earlier' when 'at_capacity' then 'at capacity'
+               when 'schedule_unverifiable' then 'task has no checkable time' when 'operating_hours' then 'outside operating hours' when 'schedule' then 'not free then'
+               when 'gender_rule' then 'does not meet the matching policy' when 'gender_rule_undecidable' then 'matching policy cannot decide for this customer' else k end), '; ' order by v::int desc)
+        into summary from jsonb_each_text(counts) e(k, v);
+      summary := 'No eligible Personal Manager. ' || coalesce(summary, 'Every approved Personal Manager has already been offered this task.');
+    end if;
+    perform queue_task(t.id, summary);
+    return 'queued';
+  end if;
+
+  insert into assignment_offers (task_id, worker_id, attempt, rank_score, rank_detail, expires_at)
+  values (t.id, best, n + 1, best_score, best_rank, now() + make_interval(mins => exp))
+  returning id into oid;
+  update tasks set assignment_state = 'offering' where id = t.id;
+  perform log_action('offer.created', 'task', t.id, jsonb_build_object('offer', oid, 'worker_id', best, 'attempt', n + 1, 'rank', best_rank,
+    'gender_rule', gender_rule(t.customer_id, t.for_whom = 'other', best)));
+  perform notify_user(best, 'task', 'A task is offered to you', t.title || ' — respond within ' || exp || ' minutes', t.id);
+  return 'offered';
+end $$;
+
+create or replace function public.after_task_ready()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.status = 'requested' and new.assigned_worker_id is null and new.assignment_state = 'none'
+     and new.price_status = 'confirmed' and new.review_state in ('ready', 'none') then
+    perform dispatch_offer(new.id);
+  end if;
+  return null;
+end $$;
+drop trigger if exists after_task_ready on tasks;
+create trigger after_task_ready after insert or update of price_status, review_state, status on tasks for each row execute procedure public.after_task_ready();
+
+-- A task taken back returns to the start of the process.
+create or replace function public.task_reopened_reset()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.status = 'requested' and old.status is distinct from 'requested' then
+    new.assignment_state := 'none'; new.queue_reason := null; new.queue_at := null; new.queue_reset_at := now();
+  end if;
+  return new;
+end $$;
+drop trigger if exists task_reopened_reset on tasks;
+create trigger task_reopened_reset before update of status on tasks for each row execute procedure public.task_reopened_reset();
+
+create or replace function public.respond_offer(p_offer uuid, p_accept boolean, p_note text default null)
+returns text language plpgsql security definer set search_path = public as $$
+declare o assignment_offers; t tasks; elig jsonb; fl text;
+begin
+  select * into o from assignment_offers where id = p_offer for update;
+  if o.id is null or o.worker_id is distinct from auth.uid() then raise exception 'That offer is not yours.'; end if;
+  if o.status = 'accepted' and p_accept then return 'accepted'; end if;                       -- repeating an answer that already worked
+  if o.status = 'rejected' and not p_accept then return 'rejected'; end if;
+  if o.status <> 'pending' then return o.status; end if;                                       -- expired or cancelled: say so, change nothing
+  select * into t from tasks where id = o.task_id for update;
+  if o.expires_at <= now() then
+    update assignment_offers set status = 'expired', responded_at = now() where id = o.id;
+    perform log_action('offer.expired', 'task', t.id, jsonb_build_object('offer', o.id, 'worker_id', o.worker_id));
+    perform dispatch_offer(t.id);
+    return 'expired';
+  end if;
+  if not p_accept then
+    update assignment_offers set status = 'rejected', responded_at = now(), response_note = left(p_note, 300) where id = o.id;
+    insert into task_declines (task_id, worker_id, reason) values (t.id, o.worker_id, left(p_note, 300)) on conflict do nothing;
+    perform log_action('offer.rejected', 'task', t.id, jsonb_build_object('offer', o.id, 'worker_id', o.worker_id));
+    perform dispatch_offer(t.id);
+    return 'rejected';
+  end if;
+  -- Accepting: serialise this PM's acceptances, then check everything again against the committed state.
+  perform 1 from profiles where id = o.worker_id for update;
+  if t.status <> 'requested' or t.assigned_worker_id is not null then
+    update assignment_offers set status = 'cancelled', responded_at = now() where id = o.id;
+    return 'cancelled';
+  end if;
+  elig := pm_eligibility(t.id, o.worker_id);
+  if not (elig ->> 'eligible')::boolean then
+    update assignment_offers set status = 'rejected', responded_at = now(), response_note = 'No longer eligible: ' || array_to_string(array(select jsonb_array_elements_text(elig -> 'failures')), ', ') where id = o.id;
+    perform log_action('offer.failed_revalidation', 'task', t.id, jsonb_build_object('offer', o.id, 'worker_id', o.worker_id, 'failures', elig -> 'failures'));
+    perform dispatch_offer(t.id);
+    return 'ineligible';
+  end if;
+  update tasks set assigned_worker_id = o.worker_id, status = 'assigned', assigned_at = now(), accepted_at = now(), assignment_state = 'assigned' where id = t.id;
+  update assignment_offers set status = 'accepted', responded_at = now() where id = o.id;
+  update profiles set last_assigned_at = now() where id = o.worker_id;
+  perform log_action('offer.accepted', 'task', t.id, jsonb_build_object('offer', o.id, 'worker_id', o.worker_id),
+    jsonb_build_object('status', 'requested'), jsonb_build_object('status', 'assigned', 'assigned_worker_id', o.worker_id));
+  perform notify_user(t.customer_id, 'task', 'A Personal Manager accepted your task', t.title, t.id);
+  return 'accepted';
+end $$;
+
+-- Sweeper: run every minute by a scheduler (pg_cron or the Edge Function). Safe to run at any time, any number of times.
+create or replace function public.process_offers()
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare o record; ex int := 0; dsp int := 0; tk record;
+begin
+  if is_app_caller() and not is_admin() then raise exception 'Not allowed.'; end if;
+  for o in select id, task_id, worker_id from assignment_offers where status = 'pending' and expires_at <= now() order by expires_at limit 200 for update skip locked loop
+    update assignment_offers set status = 'expired', responded_at = now() where id = o.id and status = 'pending';
+    perform log_action('offer.expired', 'task', o.task_id, jsonb_build_object('offer', o.id, 'worker_id', o.worker_id));
+    perform notify_user(o.worker_id, 'task', 'An offer expired', 'You did not respond in time.', o.task_id);
+    perform dispatch_offer(o.task_id); ex := ex + 1;
+  end loop;
+  if setting_text('auto_assign_mode', 'off') = 'offers' then
+    for tk in select id from tasks where status = 'requested' and assigned_worker_id is null and assignment_state = 'none' and price_status = 'confirmed'
+                 and review_state in ('ready', 'none') order by created_at limit 50 loop
+      if dispatch_offer(tk.id) = 'offered' then dsp := dsp + 1; end if;
+    end loop;
+  end if;
+  return jsonb_build_object('expired', ex, 'dispatched', dsp);
+end $$;
+
+-- 7. Existing flows honour offers --------------------------------------------------------------------------------------------------
+-- The job feed and claim only handle tasks that are not being offered or queued.
+create or replace function public.pm_task_feed(p_limit int default 20)
+returns table (
+  id uuid, title text, description text, category text, area text, scheduled_at timestamptz, scheduled_for text,
+  est_cost numeric, rate_per_day numeric, currency char(3), est_duration_minutes int, is_premium boolean,
+  premium_window_ends_at timestamptz, earn_share_bps int, distance_km numeric, available_at timestamptz, schedule_kind text
+) language plpgsql stable security definer set search_path = public as $$
+declare me profiles; win int := setting_num('premium_window_seconds', 180)::int; radius numeric := setting_num('broadcast_radius_km', 15);
+begin
+  select * into me from profiles where profiles.id = auth.uid() and role = 'worker' and worker_status = 'approved';
+  if me.id is null then return; end if;
+  return query
+  select t.id, t.title, t.description, t.category, area_of(t.location), t.scheduled_at, t.scheduled_for,
+         t.est_cost, t.rate_per_day, t.currency, t.est_duration_minutes, t.is_premium,
+         case when t.is_premium and now() < t.available_at + make_interval(secs => win) then t.available_at + make_interval(secs => win) end,
+         pm_share_bps_for(me.id),
+         case when me.base_lat is not null and t.lat is not null then round(km_between(me.base_lat, me.base_lng, t.lat, t.lng), 1) end,
+         t.available_at, t.schedule_kind
+    from tasks t
+   where t.status = 'requested' and t.routing_mode = 'broadcast' and t.price_status = 'confirmed' and t.assignment_state = 'none'
+     and t.review_state in ('ready', 'none')
+     and (not t.is_premium or me.tier = 'gold' or now() >= t.available_at + make_interval(secs => win))
+     and not exists (select 1 from task_declines d where d.task_id = t.id and d.worker_id = me.id)
+     and coalesce(array_length(pm_missing_skills(me.id, t.id), 1), 0) = 0
+     and (case
+            when me.base_lat is not null and t.lat is not null then km_between(me.base_lat, me.base_lng, t.lat, t.lng) <= radius
+            else coalesce(me.service_area, '') = '' or t.location ilike '%' || me.service_area || '%'
+          end)
+   order by (t.is_premium and now() < t.available_at + make_interval(secs => win)) desc, t.available_at asc
+   limit least(greatest(p_limit, 1), 50);
+end $$;
+
+create or replace function public.claim_task(p_task uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare t tasks; me profiles; missing text[]; win int := setting_num('premium_window_seconds', 180)::int;
+begin
+  select * into me from profiles where id = auth.uid() and role = 'worker' and worker_status = 'approved';
+  if me.id is null then raise exception 'Only approved Personal Managers can take tasks.'; end if;
+  if not rate_limit_self('claim_task', 30, 3600) then raise exception 'Too many tries. Please wait a little.'; end if;
+  select * into t from tasks where id = p_task for update;
+  if t.id is null then raise exception 'That task is no longer available.'; end if;
+  if t.assigned_worker_id = me.id and t.status in ('assigned', 'in_progress') then return 'ok'; end if;      -- a repeat of a claim that already worked
+  if t.status <> 'requested' or t.assigned_worker_id is not null then
+    perform log_ops('routing.claim_lost', 'info', jsonb_build_object('task', t.id));
+    raise exception 'This task was just taken by someone else.';
+  end if;
+  if t.routing_mode <> 'broadcast' or t.price_status <> 'confirmed' or t.assignment_state <> 'none' then raise exception 'That task is not open for claiming.'; end if;
+  if t.is_premium and me.tier <> 'gold' and now() < t.available_at + make_interval(secs => win) then
+    raise exception 'That task is not available to you yet.';
+  end if;
+  if exists (select 1 from task_declines d where d.task_id = t.id and d.worker_id = me.id) then raise exception 'You declined this task earlier.'; end if;
+  missing := pm_missing_skills(me.id, t.id);
+  if array_length(missing, 1) > 0 then raise exception 'This task needs a verified qualification you do not have yet: %.', array_to_string(missing, ', '); end if;
+  update tasks set assigned_worker_id = me.id, status = 'assigned', assigned_at = now(), accepted_at = now(), assignment_state = 'assigned' where id = t.id;
+  update profiles set last_assigned_at = now() where id = me.id;
+  perform log_action('task.claimed', 'task', t.id, jsonb_build_object('worker_id', me.id, 'premium', t.is_premium),
+    jsonb_build_object('status', 'requested'), jsonb_build_object('status', 'assigned', 'assigned_worker_id', me.id));
+  perform notify_user(t.customer_id, 'task', 'A Personal Manager accepted your task', t.title, t.id);
+  perform log_ops('routing.claimed', 'info', jsonb_build_object('task', t.id, 'premium', t.is_premium));
+  return 'ok';
+end $$;
+
+-- A manual assignment ends any offer in flight and is recorded as an override.
+create or replace function public.assign_task(p_task uuid, p_worker uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare t tasks; w profiles; missing text[]; elig jsonb;
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  select * into t from tasks where id = p_task for update;
+  if t.id is null then raise exception 'Task not found.'; end if;
+  if t.status not in ('requested', 'matched') then
+    raise exception 'Task is % and can no longer be reassigned.', t.status;
+  end if;
+  if t.status = 'matched' and t.assigned_worker_id = p_worker then return; end if;
+  if t.price_status not in ('awaiting_confirmation', 'confirmed') or (t.est_cost is null and t.rate_per_day is null) then
+    raise exception 'Approve a price for this task before assigning a Personal Manager.';
+  end if;
+  select * into w from profiles where id = p_worker;
+  if w.id is null or w.role <> 'worker' or w.worker_status <> 'approved' then
+    raise exception 'That Personal Manager is not approved.';
+  end if;
+  missing := pm_missing_skills(p_worker, p_task);
+  if array_length(missing, 1) > 0 then
+    raise exception 'That Personal Manager is not verified for: %.', array_to_string(missing, ', ');
+  end if;
+  elig := pm_eligibility(p_task, p_worker);
+  update assignment_offers set status = 'cancelled', responded_at = now() where task_id = p_task and status = 'pending';
+  update tasks set assigned_worker_id = p_worker, status = 'matched', assigned_at = now(), accepted_at = null, assignment_state = 'manual' where id = p_task;
+  update profiles set last_assigned_at = now() where id = p_worker;
+  perform log_action(case when t.assigned_worker_id is null then 'task.assigned' else 'task.reassigned' end,
+    'task', p_task, jsonb_build_object('worker_id', p_worker, 'worker_name', w.full_name,
+                                       'previous_worker_id', t.assigned_worker_id, 'title', t.title,
+                                       'override_of', elig -> 'failures'),
+    jsonb_build_object('assigned_worker_id', t.assigned_worker_id, 'status', t.status),
+    jsonb_build_object('assigned_worker_id', p_worker, 'status', 'matched'));
+end $$;
+
+-- Put a queued task back through automatic matching (another round of attempts).
+create or replace function public.requeue_task(p_task uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare t tasks;
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  select * into t from tasks where id = p_task for update;
+  if t.id is null or t.status <> 'requested' then raise exception 'Only an open task can be re-queued.'; end if;
+  update tasks set assignment_state = 'none', queue_reason = null, queue_at = null, queue_reset_at = now(), routing_mode = case when price_status = 'confirmed' then 'broadcast' else routing_mode end where id = p_task;
+  perform log_action('task.requeued', 'task', p_task);
+  return dispatch_offer(p_task);
+end $$;
+
+-- 8. What each person may see -----------------------------------------------------------------------------------------------------------
+create or replace function public.my_offers()
+returns table (
+  offer_id uuid, task_id uuid, status text, expires_at timestamptz, created_at timestamptz, title text, description text, area text, scheduled_at timestamptz, scheduled_for text,
+  est_minutes int, est_cost numeric, currency char(3), pricing_state text, schedule_kind text, quantity int, vehicle_ok text[]
+) language sql stable security definer set search_path = public as $$
+  select o.id, t.id, case when o.status = 'pending' and o.expires_at <= now() then 'expired' else o.status end, o.expires_at, o.created_at,
+         t.title, t.description, area_of(t.location), t.scheduled_at, t.scheduled_for, coalesce(t.est_minutes, t.est_duration_minutes), t.est_cost, t.currency, t.pricing_state, t.schedule_kind, t.quantity, t.vehicle_ok
+    from assignment_offers o join tasks t on t.id = o.task_id
+   where o.worker_id = auth.uid() and (o.status = 'pending' or o.responded_at > now() - interval '7 days')
+   order by (o.status = 'pending') desc, o.created_at desc limit 50;
+$$;
+
+create or replace function public.offers_overview()
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  return jsonb_build_object(
+    'counts', (select coalesce(jsonb_object_agg(status, n), '{}') from (select status, count(*) n from assignment_offers group by 1) s),
+    'queue', coalesce((select jsonb_agg(jsonb_build_object('task_id', id, 'title', title, 'reason', queue_reason, 'queued_at', queue_at) order by queue_at) from tasks where assignment_state = 'admin_queue' and status = 'requested'), '[]'),
+    'recent', coalesce((select jsonb_agg(x) from (select jsonb_build_object('offer_id', o.id, 'task_id', o.task_id, 'title', t.title, 'worker', p.full_name, 'status', o.status, 'attempt', o.attempt, 'score', o.rank_score,
+                          'created_at', o.created_at, 'expires_at', o.expires_at, 'responded_at', o.responded_at, 'note', o.response_note) x
+                          from assignment_offers o join tasks t on t.id = o.task_id join profiles p on p.id = o.worker_id order by o.created_at desc limit 50) r), '[]'),
+    'mode', setting_text('auto_assign_mode', 'off'));
+end $$;
+
+create or replace function public.task_assignment_report(p_task uuid)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only.'; end if;
+  return jsonb_build_object(
+    'state', (select jsonb_build_object('assignment_state', assignment_state, 'queue_reason', queue_reason, 'hours_exception', hours_exception_at is not null) from tasks where id = p_task),
+    'offers', coalesce((select jsonb_agg(jsonb_build_object('worker', p.full_name, 'status', o.status, 'attempt', o.attempt, 'score', o.rank_score, 'detail', o.rank_detail, 'created_at', o.created_at, 'responded_at', o.responded_at) order by o.created_at)
+                          from assignment_offers o join profiles p on p.id = o.worker_id where o.task_id = p_task), '[]'),
+    'candidates', coalesce((select jsonb_agg(jsonb_build_object('worker_id', p.id, 'name', p.full_name, 'eligibility', pm_eligibility(p_task, p.id), 'rank', pm_rank(p_task, p.id)))
+                              from profiles p where p.role = 'worker' and p.worker_status = 'approved'), '[]'),
+    'history', coalesce((select jsonb_agg(jsonb_build_object('action', a.action, 'at', a.created_at, 'details', a.details) order by a.created_at)
+                           from audit_log a where a.entity = 'task' and a.entity_id = p_task and (a.action like 'offer.%' or a.action like 'task.%assign%' or a.action in ('task.sent_to_admin_queue', 'task.requeued', 'task.claimed', 'task.hours_exception', 'task.unassigned'))), '[]'));
+end $$;
+
+-- 9. Access --------------------------------------------------------------------------------------------------------------------------------------
+alter table service_eligibility enable row level security;
+alter table matching_policy enable row level security;
+alter table assignment_offers enable row level security;
+drop policy if exists "service eligibility: read" on service_eligibility;
+create policy "service eligibility: read" on service_eligibility for select using (is_admin());
+drop policy if exists "matching policy: admins read" on matching_policy;
+create policy "matching policy: admins read" on matching_policy for select using (is_admin());
+drop policy if exists "offers: the PM or an admin" on assignment_offers;
+create policy "offers: the PM or an admin" on assignment_offers for select using (worker_id = auth.uid() or is_admin());
+revoke insert, update, delete, truncate on service_eligibility, matching_policy, assignment_offers from anon, authenticated;
+grant select on service_eligibility, matching_policy, assignment_offers to authenticated;
+
+revoke execute on function public.set_service_vehicle(uuid, text[]), public.set_pm_vehicles(uuid, text[], boolean), public.set_pm_regions(uuid, text[]),
+  public.set_my_gender(text, boolean), public.my_gender_status(), public.admin_set_pm_gender(uuid, text), public.save_matching_policy(boolean, jsonb, text, text),
+  public.matching_policy_status(), public.gender_rule(uuid, boolean, uuid), public.pm_eligibility(uuid, uuid), public.pm_rank(uuid, uuid), public.queue_task(uuid, text),
+  public.dispatch_offer(uuid), public.respond_offer(uuid, boolean, text), public.process_offers(), public.requeue_task(uuid), public.my_offers(), public.offers_overview(),
+  public.task_assignment_report(uuid), public.pm_task_feed(int), public.claim_task(uuid), public.assign_task(uuid, uuid) from public, anon;
+revoke execute on function public.gender_rule(uuid, boolean, uuid), public.pm_eligibility(uuid, uuid), public.pm_rank(uuid, uuid), public.queue_task(uuid, text),
+  public.dispatch_offer(uuid) from authenticated;
+grant execute on function public.set_service_vehicle(uuid, text[]), public.set_pm_vehicles(uuid, text[], boolean), public.set_pm_regions(uuid, text[]),
+  public.set_my_gender(text, boolean), public.my_gender_status(), public.admin_set_pm_gender(uuid, text), public.save_matching_policy(boolean, jsonb, text, text),
+  public.matching_policy_status(), public.respond_offer(uuid, boolean, text), public.process_offers(), public.requeue_task(uuid), public.my_offers(), public.offers_overview(),
+  public.task_assignment_report(uuid), public.pm_task_feed(int), public.claim_task(uuid), public.assign_task(uuid, uuid) to authenticated;
+-- The scheduler runs as the service role.
+grant execute on function public.process_offers(), public.dispatch_offer(uuid) to service_role;
