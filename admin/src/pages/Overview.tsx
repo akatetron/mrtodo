@@ -35,7 +35,10 @@ export default function Overview({ go }: { go: (id: string, sub?: string) => voi
   const offered = data.open.filter((t) => t.status === 'matched').length;
   const active = data.open.filter((t) => ['assigned', 'in_progress'].includes(t.status)).length;
   const done7 = data.tasks.filter((t) => t.status === 'completed' && t.completed_at && Date.now() - new Date(t.completed_at).getTime() < 7 * DAY);
-  const gmv7 = done7.reduce((s, t) => s + taskValue(t, visitCount), 0);
+  // Totals are kept per currency: amounts in different currencies are never added together.
+  const gmv7ByCur: Record<string, number> = {};
+  done7.forEach((t) => { gmv7ByCur[t.currency || 'INR'] = (gmv7ByCur[t.currency || 'INR'] || 0) + taskValue(t, visitCount); });
+  const showCur = (f: (n: number) => number) => Object.entries(gmv7ByCur).map(([c, n]) => money(f(n), c)).join(' + ') || money(0);
   const pending = data.pms.filter((p) => p.worker_status === 'pending').length;
   const approved = data.pms.filter((p) => p.worker_status === 'approved');
   const byCat = CATEGORIES.map((c) => ({ ...c, n: data.tasks.filter((t) => t.category === c.id).length }));
@@ -60,8 +63,8 @@ export default function Overview({ go }: { go: (id: string, sub?: string) => voi
       </div>
       <div className="grid stats">
         <Stat label="Completed (7 days)" value={done7.length} />
-        <Stat label="Job value (7 days)" value={money(gmv7)} sub="estimated, from task prices" />
-        <Stat label="Platform share (7 days)" value={money(Math.round(gmv7 * (1 - PM_SHARE)))} sub={`${Math.round((1 - PM_SHARE) * 100)}% of job value`} />
+        <Stat label="Job value (7 days)" value={showCur((n) => n)} sub="estimated, from task prices" />
+        <Stat label="Platform share (7 days)" value={showCur((n) => Math.round(n * (1 - PM_SHARE)))} sub={`${Math.round((1 - PM_SHARE) * 100)}% of job value`} />
         <Stat label="Last 30 days" value={data.tasks.length} sub={`posted · ${completed30} done · ${cancelled30} cancelled`} />
       </div>
 

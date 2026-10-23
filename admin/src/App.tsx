@@ -13,6 +13,9 @@ import Operations from './pages/Operations';
 import Catalogue from './pages/Catalogue';
 import Plans from './pages/Plans';
 import Standards from './pages/Standards';
+import Regions from './pages/Regions';
+import Pricing from './pages/Pricing';
+import Assignment from './pages/Assignment';
 
 const PAGES = [
   { id: 'overview', label: 'Overview', component: Overview },
@@ -20,6 +23,9 @@ const PAGES = [
   { id: 'escalations', label: 'Escalations', component: Escalations },
   { id: 'catalogue', label: 'Service catalogue', component: Catalogue },
   { id: 'standards', label: 'Standards', component: Standards },
+  { id: 'regions', label: 'Regions and hours', component: Regions },
+  { id: 'pricing', label: 'Pricing rules', component: Pricing },
+  { id: 'assignment', label: 'Assignment', component: Assignment },
   { id: 'plans', label: 'Todo+ plans', component: Plans },
   { id: 'applications', label: 'Applications', component: Applications },
   { id: 'pms', label: 'Personal Managers', component: PersonalManagers },

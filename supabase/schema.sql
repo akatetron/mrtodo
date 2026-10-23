@@ -5345,6 +5345,32 @@ begin
   return nid;
 end $$;
 
+-- A region also says how many decimal places its currency uses (for example 0 for a zero-decimal currency).
+create or replace function public.save_region(p jsonb)
+returns text language plpgsql security definer set search_path = public as $$
+declare c text := upper(trim(p ->> 'code')); old regions; cur char(3) := upper(trim(p ->> 'currency')); tz text := trim(p ->> 'timezone'); mu smallint := coalesce(nullif(p ->> 'minor_units', '')::smallint, 2);
+begin
+  if not is_super_admin() then raise exception 'Only a super admin can change regions.'; end if;
+  if c is null or c !~ '^[A-Z0-9][A-Z0-9-]{1,11}$' then raise exception 'Give the region a short code, for example IN-MH.'; end if;
+  if cur is null or cur !~ '^[A-Z]{3}$' then raise exception 'Use a three-letter ISO 4217 currency code.'; end if;
+  if mu not between 0 and 3 then raise exception 'A currency has between 0 and 3 decimal places.'; end if;
+  if not exists (select 1 from pg_timezone_names where name = tz) then raise exception 'That time zone is not recognised. Use an IANA name such as Asia/Kolkata.'; end if;
+  if coalesce(p ->> 'status', 'draft') not in ('draft', 'active', 'paused') then raise exception 'Unknown status.'; end if;
+  select * into old from regions where code = c;
+  if old.code is not null and (old.currency <> cur or old.minor_units <> mu) and region_has_rules(c) then
+    raise exception 'This region has pricing rules in %. Create a new region for a different currency instead of changing it.', old.currency;
+  end if;
+  insert into regions (code, name, country, currency, minor_units, timezone, status, payments_enabled, allow_outside_hours_requests, updated_by)
+  values (c, trim(p ->> 'name'), nullif(upper(trim(p ->> 'country')), ''), cur, mu, tz, coalesce(p ->> 'status', 'draft'),
+          coalesce((p ->> 'payments_enabled')::boolean, false), coalesce((p ->> 'allow_outside_hours_requests')::boolean, true), auth.uid())
+  on conflict (code) do update set name = excluded.name, country = excluded.country, currency = excluded.currency, minor_units = excluded.minor_units, timezone = excluded.timezone,
+    status = excluded.status, payments_enabled = excluded.payments_enabled, allow_outside_hours_requests = excluded.allow_outside_hours_requests,
+    updated_by = auth.uid(), updated_at = now();
+  perform log_action(case when old.code is null then 'region.created' else 'region.updated' end, 'region', null,
+    jsonb_build_object('code', c), to_jsonb(old), p);
+  return c;
+end $$;
+
 -- 6. Access ---------------------------------------------------------------------------------------------------------
 alter table pricing_rules enable row level security;
 drop policy if exists "pricing rules: admins read" on pricing_rules;

@@ -35,8 +35,15 @@ export function shortId(id) {
   return `MT-${String(id).slice(0, 6).toUpperCase()}`;
 }
 
-export function money(n) {
-  return n == null ? '—' : `₹${Number(n).toLocaleString('en-IN')}`;
+// The amount in its own currency. Amounts in different currencies are never added together.
+export function money(n, currency = 'INR') {
+  if (n == null) return '—';
+  const whole = Number.isInteger(Number(n));
+  try {
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en', { style: 'currency', currency, minimumFractionDigits: whole ? 0 : undefined }).format(Number(n));
+  } catch (e) {
+    return `${currency} ${Number(n).toLocaleString('en')}`;
+  }
 }
 
 export function when(ts) {

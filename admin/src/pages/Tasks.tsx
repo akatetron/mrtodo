@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useLive, q } from '../lib/useLive';
 import { TASK_STATUS, catMeta, shortId, money, when, rating, PM_SHARE } from '../lib/constants';
 import { Contact, Field, Badge, Avatar, ErrorBox, useAction } from '../components/ui';
-import { EscalationBanner, ScopePanel, QuotePanel, SpecialistPanel } from './TaskPanels';
+import { EscalationBanner, ScopePanel, QuotePanel, SpecialistPanel, PricingPanel, AssignmentPanel } from './TaskPanels';
 
 const FILTERS = [
   { id: 'queue', label: 'Needs a PM', match: (t) => t.status === 'requested' },
@@ -80,7 +80,7 @@ export default function Tasks() {
                 <div className="small muted">{shortId(t.id)} · {t.customer?.full_name} · {t.location}</div>
                 <div className="row spread small">
                   <Badge tone={TASK_STATUS[t.status].tone}>{TASK_STATUS[t.status].label}</Badge>
-                  <span>{t.price_status === 'awaiting_approval' ? 'No price yet' : t.task_type === 'ongoing' ? `${money(t.rate_per_day)}/day` : money(t.est_cost)}</span>
+                  <span>{t.price_status === 'awaiting_approval' ? 'No price yet' : t.task_type === 'ongoing' ? `${money(t.rate_per_day, t.currency)}/day` : money(t.final_amount ?? t.est_cost, t.currency)}</span>
                   <span className="muted">{when(t.created_at)}</span>
                 </div>
               </button>
@@ -101,7 +101,7 @@ export default function Tasks() {
 function TaskDetail({ t }) {
   const st = TASK_STATUS[t.status];
   const canAssign = ['requested', 'matched'].includes(t.status);
-  const value = t.task_type === 'ongoing' ? `${money(t.rate_per_day)}/day` : money(t.est_cost);
+  const value = t.task_type === 'ongoing' ? `${money(t.rate_per_day, t.currency)}/day` : money(t.final_amount ?? t.est_cost, t.currency);
 
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -115,7 +115,7 @@ function TaskDetail({ t }) {
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <Info label="Where" value={t.location} />
           <Info label="When" value={t.scheduled_for || 'Flexible'} />
-          <Info label="Value" value={value} sub={t.est_cost || t.rate_per_day ? `PM earns ${money(Math.round((t.est_cost || t.rate_per_day) * PM_SHARE))}${t.task_type === 'ongoing' ? '/day' : ''}` : null} />
+          <Info label="Value" value={value} sub={t.est_cost || t.rate_per_day ? `PM earns ${money(Math.round((t.est_cost || t.rate_per_day) * PM_SHARE), t.currency)}${t.task_type === 'ongoing' ? '/day' : ''}` : null} />
           <Info label="Type" value={t.task_type === 'ongoing' ? 'Ongoing (multi-visit)' : 'One-time'} />
         </div>
         <div className="doc">
@@ -151,6 +151,8 @@ function TaskDetail({ t }) {
       <ScopePanel t={t} />
       <QuotePanel t={t} />
       <SpecialistPanel t={t} />
+      <PricingPanel t={t} />
+      <AssignmentPanel t={t} />
       {['requested', 'matched'].includes(t.status) && <PriceApproval t={t} />}
       {canAssign && t.price_status !== 'awaiting_approval' && <Shortlist t={t} />}
       {canAssign && t.price_status === 'awaiting_approval' && <div className="card small muted">Approve a price above before assigning a Personal Manager.</div>}
@@ -181,7 +183,7 @@ function PriceApproval({ t }) {
   return (
     <div className="card stack">
       <div className="row spread"><h3>Price</h3><Badge tone={status === 'confirmed' ? 'success' : 'brass'}>{label}</Badge></div>
-      {base != null && <div className="small muted">Current: {money(base)}{t.task_type === 'ongoing' ? '/day' : ''}</div>}
+      {base != null && <div className="small muted">Current: {money(base, t.currency)}{t.task_type === 'ongoing' ? '/day' : ''}</div>}
       {status !== 'confirmed' && (
         <>
           <Field label="Price (₹)"><input className="field" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>

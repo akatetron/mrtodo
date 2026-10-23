@@ -45,7 +45,7 @@ export function ScopePanel({ t }: { t: any }) {
       <div className="row spread"><h3>Request to run over several days</h3><Badge tone={c.status === 'applied' ? 'success' : c.status === 'rejected' ? 'danger' : 'brass'}>{label[c.status]}</Badge></div>
       <div>Reason: {c.reason}</div>
       <ul className="small" style={{ margin: 0 }}>{(c.proposed_visits || []).map((v: any, i: number) => <li key={i}>{v.date}{v.note ? ` — ${v.note}` : ''}</li>)}</ul>
-      <div className="small muted">PM suggests extra cost: {c.price_impact != null ? money(c.price_impact) : 'none'}{c.approved_price_impact != null ? ` · approved: ${money(c.approved_price_impact)}` : ''}</div>
+      <div className="small muted">PM suggests extra cost: {c.price_impact != null ? money(c.price_impact, t.currency) : 'none'}{c.approved_price_impact != null ? ` · approved: ${money(c.approved_price_impact, t.currency)}` : ''}</div>
       {c.status === 'pending' && (
         <>
           <Field label="Extra cost the customer will be asked to approve (₹)"><input className="field" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={c.price_impact != null ? String(c.price_impact) : '0'} /></Field>
@@ -74,9 +74,9 @@ export function QuotePanel({ t }: { t: any }) {
       <h3>Quotes and price history</h3>
       {data.map((x: any) => (
         <div key={x.id} className="stack" style={{ gap: 4, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-          <div className="row spread"><strong>Version {x.version} · {money(x.total)}</strong><Badge tone={x.status === 'customer_approved' ? 'success' : x.status === 'rejected' ? 'danger' : 'brass'}>{label[x.status]}</Badge></div>
+          <div className="row spread"><strong>Version {x.version} · {money(x.total, x.currency)}</strong><Badge tone={x.status === 'customer_approved' ? 'success' : x.status === 'rejected' ? 'danger' : 'brass'}>{label[x.status]}</Badge></div>
           <div className="small muted">{x.reason}</div>
-          <div className="small">{(x.components || []).map((c: any) => `${c.label}: ${money(c.amount)}`).join(' · ')}</div>
+          <div className="small">{(x.components || []).map((c: any) => `${c.label}: ${money(c.amount, x.currency)}`).join(' · ')}</div>
         </div>
       ))}
       {open && (
@@ -116,6 +116,70 @@ export function SpecialistPanel({ t }: { t: any }) {
           <button className="btn sm" disabled={busy} onClick={() => run(() => q(supabase.rpc('assign_specialist', { p_task: t.id, p_specialist: s.id, p_note: null })))}>Arrange</button></div>
       ))}
       <div className="small muted">A specialist finishing a visit never completes the customer's task. Regulated work only goes to a verified specialist.</div>
+      <ErrorBox>{error}</ErrorBox>
+    </div>
+  );
+}
+
+// How the price was worked out, in its own currency, and the final charge once the work is done.
+export function PricingPanel({ t }: { t: any }) {
+  const [minutes, setMinutes] = useState('');
+  const [distance, setDistance] = useState('');
+  const [run, busy, error] = useAction();
+  if (!t.pricing_breakdown && !t.final_breakdown) return null;
+  const b = t.final_breakdown?.available ? t.final_breakdown : t.pricing_breakdown;
+  const label: any = { estimated: 'Estimated', quote_pending: 'Quote awaiting approval', approved: 'Approved', final: 'Final charge' };
+  return (
+    <div className="card stack">
+      <div className="row spread"><h3>Price</h3><Badge tone={t.pricing_state === 'final' ? 'success' : t.pricing_state === 'quote_pending' ? 'brass' : 'accent'}>{label[t.pricing_state] || 'Price'}</Badge></div>
+      {b?.available ? (
+        <>
+          <div className="small muted">Rule version {b.rule?.version} · {b.currency}{b.minutes?.billable ? ` · ${b.minutes.billable} minutes billed` : ''}{b.quantity > 1 ? ` · quantity ${b.quantity}` : ''}</div>
+          {(b.lines || []).map((l: any, i: number) => <div key={i} className="row spread small"><span>{l.label}{l.minutes ? ` · ${l.minutes} min × ${money(l.rate, b.currency)}` : ''}</span><span>{money(l.amount, b.currency)}</span></div>)}
+          <div className="row spread"><strong>Total</strong><strong>{money(b.total, b.currency)}</strong></div>
+          {(b.messages || []).map((m: string, i: number) => <div key={i} className="small muted">{m}</div>)}
+        </>
+      ) : <div className="small muted">{b?.message || 'This booking was not priced by a rule.'}</div>}
+      {t.pricing_rule_id && t.pricing_state !== 'final' && ['in_progress', 'completed'].includes(t.status) && (
+        <div className="stack">
+          <div className="label">Set the final charge from the time actually worked (uses the rule the booking was made under)</div>
+          <div className="row"><input className="field" style={{ width: 130 }} inputMode="numeric" placeholder="Minutes worked" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+            <input className="field" style={{ width: 150 }} inputMode="decimal" placeholder="Travel km (if charged)" value={distance} onChange={(e) => setDistance(e.target.value)} />
+            <button className="btn" disabled={busy || !minutes} onClick={() => run(() => q(supabase.rpc('finalise_task_price', { p_task: t.id, p_actual_minutes: Number(minutes), p_distance_km: distance ? Number(distance) : null })))}>Set final charge</button></div>
+        </div>)}
+      <ErrorBox>{error}</ErrorBox>
+    </div>
+  );
+}
+
+// Who was offered the task, in what order, and why each Personal Manager is or is not eligible.
+export function AssignmentPanel({ t }: { t: any }) {
+  const { data: r, reload } = useLive(() => q(supabase.rpc('task_assignment_report', { p_task: t.id })), ['assignment_offers', 'tasks'], [t.id]);
+  const [note, setNote] = useState('');
+  const [run, busy, error] = useAction();
+  if (!r) return null;
+  const REASON: any = { not_active: 'not active', qualifications: 'missing a verified qualification', price_not_approved: 'price not approved', region: 'does not serve the region', vehicle: 'no suitable vehicle',
+    vehicle_unknown: 'vehicle not stated', too_far: 'too far', area: 'outside their service area', declined: 'declined earlier', at_capacity: 'at capacity', schedule_unverifiable: 'the task has no checkable time',
+    operating_hours: 'outside operating hours', schedule: 'not free then', gender_rule: 'matching policy', gender_rule_undecidable: 'matching policy cannot decide', not_found: 'not found' };
+  const state = r.state || {};
+  if (!['requested', 'matched'].includes(t.status) && !(r.offers || []).length) return null;
+  return (
+    <div className="card stack">
+      <div className="row spread"><h3>Assignment</h3><Badge tone={state.assignment_state === 'admin_queue' ? 'danger' : state.assignment_state === 'offering' ? 'brass' : 'neutral'}>{({ none: 'Not offered', offering: 'Offer pending', admin_queue: 'Admin Queue', assigned: 'Assigned', manual: 'Assigned by admin' } as any)[state.assignment_state] || state.assignment_state}</Badge></div>
+      {state.queue_reason && <div className="small">{state.queue_reason}</div>}
+      {(r.offers || []).map((o: any, i: number) => (
+        <div key={i} className="row spread small"><span>#{o.attempt} {o.worker}{o.score != null ? <span className="muted"> · score {o.score}</span> : null}</span><Badge tone={o.status === 'accepted' ? 'success' : o.status === 'pending' ? 'brass' : 'neutral'}>{o.status}</Badge></div>))}
+      {['requested', 'matched'].includes(t.status) && (
+        <details><summary className="small">Why each Personal Manager is or is not eligible</summary>
+          <div className="stack" style={{ marginTop: 8 }}>{(r.candidates || []).map((c: any) => (
+            <div key={c.worker_id} className="small"><strong>{c.name}</strong> · {c.eligibility?.eligible ? <Badge tone="success">eligible</Badge> : <Badge tone="danger">not eligible</Badge>} <span className="muted">score {c.rank?.score}</span>
+              {!c.eligibility?.eligible && <div className="muted">{(c.eligibility?.failures || []).map((f: string) => REASON[f] || f).join(', ')}</div>}</div>))}
+            {!(r.candidates || []).length && <div className="small muted">No approved Personal Managers.</div>}</div></details>)}
+      {state.assignment_state === 'admin_queue' && String(state.queue_reason || '').includes('operating hours') && !state.hours_exception && (
+        <div className="stack"><Field label="Allow this task outside operating hours (reason, recorded)"><input className="field" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+          <div><button className="btn" disabled={busy || note.length < 10} onClick={() => run(async () => { await q(supabase.rpc('approve_hours_exception', { p_task: t.id, p_note: note })); await q(supabase.rpc('requeue_task', { p_task: t.id })); reload(); })}>Approve exception and try again</button></div></div>)}
+      {state.hours_exception && <div className="small muted">An administrator approved this task outside operating hours.</div>}
+      {(r.history || []).length > 0 && <details><summary className="small">History</summary>{(r.history || []).map((h: any, i: number) => <div key={i} className="small muted">{h.action} · {when(h.at)}</div>)}</details>}
       <ErrorBox>{error}</ErrorBox>
     </div>
   );
